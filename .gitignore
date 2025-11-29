@@ -1,0 +1,81 @@
+# Credenziali e chiavi di sicurezza
+auth.json
+db_key.key
+*.key
+*.pem
+
+# Database e file di dati sensibili
+database_avanzato.db
+database_avanzato.db.enc
+*.db
+*.db.enc
+
+# Build e distribuzione
+build/
+dist/
+*.spec
+*.egg-info/
+*.eggs/
+
+# Cache Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# IDE e editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+*.sublime-project
+*.sublime-workspace
+
+# File temporanei
+*.tmp
+.*.tmp
+*.bak
+*.backup
+*~
+
+# Cartelle di dati sensibili
+files/
+uploads/
+
+# Ambiente virtuale
+venv/
+env/
+ENV/
+
+# OS specifici
+Thumbs.db
+.DS_Store
+
+# File di log
+*.log
+logs/
+
+# Configurazioni locali (se necessario)
+local_config.json
+app_config.json
+
+# File .env (variabili d'ambiente)
+.env
+.env.local
+.env.*.local
+
+# File generati dalla build
+logo.ico
+
+# pytest / coverage
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.nox/
+
+# mypy
+.mypy_cache/
