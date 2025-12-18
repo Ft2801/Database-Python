@@ -8,6 +8,9 @@ import json
 import tempfile
 import subprocess
 import threading
+import time
+import glob
+import psutil
 from typing import Optional, Tuple, Callable
 from urllib.request import urlopen, Request
 from urllib.error import URLError, HTTPError
@@ -21,6 +24,175 @@ INSTALLER_NAME = "DatabasePro_Setup.exe"
 
 # Versione corrente dell'applicazione (da aggiornare ad ogni release)
 CURRENT_VERSION = "1.1.0"
+
+# Configurazione per il monitoraggio dell'installer
+INSTALLER_MONITOR_TIMEOUT = 600  # Timeout massimo in secondi per il monitoraggio (10 minuti)
+INSTALLER_CHECK_INTERVAL = 5  # Intervallo in secondi per controllare lo stato del file
+
+
+def find_old_installer_files() -> list:
+    """
+    Trova tutti i file installer ancora presenti nella cartella temporanea.
+    
+    Returns:
+        Lista di percorsi ai file installer trovati.
+    """
+    try:
+        temp_dir = tempfile.gettempdir()
+        # Pattern per trovare i file installer
+        patterns = [
+            os.path.join(temp_dir, "DatabasePro_Setup_*.exe"),
+            os.path.join(temp_dir, "DatabasePro_Setup.exe")
+        ]
+        
+        installer_files = []
+        for pattern in patterns:
+            installer_files.extend(glob.glob(pattern))
+        
+        print(f"[Updater] Trovati {len(installer_files)} file installer nella cartella temporanea")
+        return installer_files
+    except Exception as e:
+        print(f"[Updater] Errore durante la ricerca dei file installer: {e}")
+        return []
+
+
+def cleanup_old_installers() -> Tuple[int, int]:
+    """
+    Elimina tutti i vecchi file installer dalla cartella temporanea.
+    
+    Returns:
+        Tupla (file_eliminati, file_falliti) con il numero di file eliminati e falliti.
+    """
+    old_files = find_old_installer_files()
+    if not old_files:
+        return 0, 0
+    
+    deleted_count = 0
+    failed_count = 0
+    
+    for file_path in old_files:
+        try:
+            # Verifica se il file è in uso
+            if os.path.exists(file_path):
+                try:
+                    # Prova a verificare se il file è accessibile (in lettura, senza modificarlo)
+                    with open(file_path, 'rb'):
+                        pass
+                    # Se arriviamo qui, possiamo eliminarlo
+                    os.remove(file_path)
+                    print(f"[Updater] File installer eliminato: {file_path}")
+                    deleted_count += 1
+                except PermissionError:
+                    # File probabilmente in uso
+                    print(f"[Updater] File installer in uso, impossibile eliminare: {file_path}")
+                    failed_count += 1
+                except Exception as e:
+                    print(f"[Updater] Errore durante l'eliminazione di {file_path}: {e}")
+                    failed_count += 1
+        except Exception as e:
+            print(f"[Updater] Errore generico durante la pulizia di {file_path}: {e}")
+            failed_count += 1
+    
+    print(f"[Updater] Pulizia completata: {deleted_count} eliminati, {failed_count} falliti")
+    return deleted_count, failed_count
+
+
+def safe_delete_file(file_path: str, max_retries: int = 3, retry_delay: float = 1.0) -> bool:
+    """
+    Tenta di eliminare un file in modo sicuro con retry.
+    
+    Args:
+        file_path: Percorso del file da eliminare
+        max_retries: Numero massimo di tentativi
+        retry_delay: Ritardo in secondi tra i tentativi
+    
+    Returns:
+        True se il file è stato eliminato con successo, False altrimenti.
+    """
+    if not os.path.exists(file_path):
+        return True  # File già eliminato
+    
+    for attempt in range(max_retries):
+        try:
+            os.remove(file_path)
+            print(f"[Updater] File eliminato con successo: {file_path}")
+            return True
+        except PermissionError as e:
+            if attempt < max_retries - 1:
+                print(f"[Updater] Tentativo {attempt + 1}/{max_retries} fallito (file in uso), riprovo tra {retry_delay}s...")
+                time.sleep(retry_delay)
+            else:
+                print(f"[Updater] Impossibile eliminare il file dopo {max_retries} tentativi: {e}")
+                return False
+        except Exception as e:
+            print(f"[Updater] Errore durante l'eliminazione del file: {e}")
+            return False
+    
+    return False
+
+
+def monitor_installer_process(installer_path: str, process_handle=None):
+    """
+    Monitora il processo installer e pulisce il file quando termina.
+    Questa funzione viene eseguita in un thread separato.
+    
+    Args:
+        installer_path: Percorso del file installer da monitorare e eliminare
+        process_handle: Handle del processo (opzionale, usato su Windows)
+    """
+    try:
+        print(f"[Updater] Inizio monitoraggio installer: {installer_path}")
+        
+        # Su Windows, se abbiamo l'handle del processo, lo usiamo
+        if sys.platform == 'win32' and process_handle:
+            try:
+                # Usa psutil per monitorare il processo se possibile
+                if isinstance(process_handle, int):
+                    # È un PID
+                    try:
+                        process = psutil.Process(process_handle)
+                        process.wait(timeout=None)  # Attendi che il processo termini
+                        print(f"[Updater] Processo installer terminato (PID: {process_handle})")
+                    except psutil.NoSuchProcess:
+                        print(f"[Updater] Processo non trovato (già terminato?)")
+                    except Exception as e:
+                        print(f"[Updater] Errore monitoraggio processo: {e}")
+                        # Fallback: attendi un po' e prova a eliminare
+                        time.sleep(5)
+            except Exception as e:
+                print(f"[Updater] Errore nell'uso di psutil: {e}")
+                # Fallback: attendi e controlla periodicamente
+                elapsed = 0
+                
+                while elapsed < INSTALLER_MONITOR_TIMEOUT:
+                    time.sleep(INSTALLER_CHECK_INTERVAL)
+                    elapsed += INSTALLER_CHECK_INTERVAL
+                    
+                    # Controlla se il file è ancora in uso (lettura, non modifica)
+                    try:
+                        with open(installer_path, 'rb'):
+                            # Se riusciamo ad aprirlo in lettura, probabilmente non è più in uso
+                            break
+                    except Exception:
+                        continue
+        else:
+            # Su Unix o senza handle, attendi un po' e prova a eliminare
+            time.sleep(10)
+        
+        # Attendi un po' prima di provare a eliminare per sicurezza
+        time.sleep(2)
+        
+        # Tenta di eliminare il file
+        print(f"[Updater] Tentativo di eliminazione del file installer...")
+        success = safe_delete_file(installer_path, max_retries=5, retry_delay=2.0)
+        
+        if success:
+            print(f"[Updater] File installer eliminato con successo")
+        else:
+            print(f"[Updater] Impossibile eliminare il file installer, verrà rimosso al prossimo avvio")
+    
+    except Exception as e:
+        print(f"[Updater] Errore durante il monitoraggio del processo installer: {e}")
 
 
 def get_current_version() -> str:
@@ -193,9 +365,13 @@ def download_update(download_url: str, progress_callback: Optional[Callable[[int
         return None
 
 
-def install_update(installer_path: str) -> Tuple[bool, str]:
+def install_update(installer_path: str, start_monitoring: bool = True) -> Tuple[bool, str]:
     """
     Esegue l'installer per aggiornare l'applicazione.
+    
+    Args:
+        installer_path: Percorso del file installer
+        start_monitoring: Se True, avvia il monitoraggio del processo per la pulizia automatica
     
     Returns:
         (Successo, Messaggio di errore o stato)
@@ -207,6 +383,8 @@ def install_update(installer_path: str) -> Tuple[bool, str]:
         installer_path = os.path.abspath(installer_path)
         print(f"[Updater] Avvio installer: {installer_path}")
         
+        process_info = None  # Per salvare informazioni sul processo
+        
         if sys.platform == 'win32':
             try:
                 import ctypes
@@ -215,6 +393,14 @@ def install_update(installer_path: str) -> Tuple[bool, str]:
                 result = ctypes.windll.shell32.ShellExecuteW(None, "runas", installer_path, None, None, 1)
                 if result > 32:
                     print(f"[Updater] ShellExecuteW riuscito (codice: {result})")
+                    # Avvia il monitoraggio in background
+                    if start_monitoring:
+                        monitor_thread = threading.Thread(
+                            target=monitor_installer_process,
+                            args=(installer_path, None),
+                            daemon=True
+                        )
+                        monitor_thread.start()
                     return True, "Installer avviato con successo"
                 else:
                     raise Exception(f"Errore ShellExecuteW: {result}")
@@ -223,12 +409,29 @@ def install_update(installer_path: str) -> Tuple[bool, str]:
                 try:
                     os.startfile(installer_path)
                     print("[Updater] Installer avviato con os.startfile")
+                    # Avvia il monitoraggio in background
+                    if start_monitoring:
+                        monitor_thread = threading.Thread(
+                            target=monitor_installer_process,
+                            args=(installer_path, None),
+                            daemon=True
+                        )
+                        monitor_thread.start()
                     return True, "Installer avviato con os.startfile"
                 except Exception as e2:
                     print(f"[Updater] os.startfile fallito: {e2}")
                     try:
-                        subprocess.Popen(f'"{installer_path}"', shell=True)
-                        print("[Updater] Installer avviato con subprocess")
+                        proc = subprocess.Popen(f'"{installer_path}"', shell=True)
+                        process_info = proc.pid
+                        print(f"[Updater] Installer avviato con subprocess (PID: {process_info})")
+                        # Avvia il monitoraggio in background
+                        if start_monitoring:
+                            monitor_thread = threading.Thread(
+                                target=monitor_installer_process,
+                                args=(installer_path, process_info),
+                                daemon=True
+                            )
+                            monitor_thread.start()
                         return True, "Installer avviato con subprocess"
                     except Exception as e3:
                         print(f"[Updater] Tutti i tentativi falliti: {e3}")
@@ -236,7 +439,17 @@ def install_update(installer_path: str) -> Tuple[bool, str]:
         else:
             try:
                 os.chmod(installer_path, 0o755)
-                subprocess.Popen([installer_path], start_new_session=True)
+                proc = subprocess.Popen([installer_path], start_new_session=True)
+                process_info = proc.pid
+                print(f"[Updater] Installer avviato (PID: {process_info})")
+                # Avvia il monitoraggio in background
+                if start_monitoring:
+                    monitor_thread = threading.Thread(
+                        target=monitor_installer_process,
+                        args=(installer_path, process_info),
+                        daemon=True
+                    )
+                    monitor_thread.start()
                 return True, "Installer avviato"
             except Exception as e:
                 return False, f"Errore avvio Unix: {e}"
