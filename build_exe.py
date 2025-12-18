@@ -28,11 +28,9 @@ def build_executable():
     main_script = "app.py"
     icon_file = "logo.png"
     
-    # File da includere
+    # File da includere (solo il logo, gli altri file sono creati dall'app in ProgramData)
     added_files = [
         ("logo.png", "."),
-        ("app_config.json", "."),
-        ("files", "files"),  # Cartella per gli allegati ai record
     ]
     
     # Costruisci il comando PyInstaller
