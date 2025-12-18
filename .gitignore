@@ -13,7 +13,6 @@ database_avanzato.db.enc
 # Build e distribuzione
 build/
 dist/
-!dist/DatabasePro_Setup.exe
 *.spec
 *.egg-info/
 *.eggs/

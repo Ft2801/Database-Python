@@ -106,7 +106,14 @@ def check_for_updates() -> Optional[dict]:
             'html_url': data.get('html_url', '')
         }
     
-    except (URLError, HTTPError, json.JSONDecodeError, KeyError) as e:
+    except HTTPError as e:
+        if e.code == 404:
+            # Nessuna release pubblicata - comportamento normale
+            print("[Updater] Nessuna release trovata su GitHub (prima release non ancora pubblicata)")
+        else:
+            print(f"[Updater] Errore HTTP durante il controllo aggiornamenti: {e}")
+        return None
+    except (URLError, json.JSONDecodeError, KeyError) as e:
         print(f"[Updater] Errore durante il controllo aggiornamenti: {e}")
         return None
     except Exception as e:
