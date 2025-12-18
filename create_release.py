@@ -19,6 +19,7 @@ from datetime import datetime
 
 
 UPDATER_FILE = "updater.py"
+INSTALLER_GUI_FILE = "installer_gui.py"
 CHANGELOG_FILE = "CHANGELOG.md"
 VERSION_PATTERN = re.compile(r'^\d+\.\d+\.\d+$')
 
@@ -54,6 +55,21 @@ def update_version_in_updater(new_version: str):
     )
     
     with open(UPDATER_FILE, 'w', encoding='utf-8') as f:
+        f.write(new_content)
+
+
+def update_version_in_installer_gui(new_version: str):
+    """Aggiorna la versione nel file installer_gui.py"""
+    with open(INSTALLER_GUI_FILE, 'r', encoding='utf-8') as f:
+        content = f.read()
+    
+    new_content = re.sub(
+        r'APP_VERSION\s*=\s*["\'][^"\']+["\']',
+        f'APP_VERSION = "{new_version}"',
+        content
+    )
+    
+    with open(INSTALLER_GUI_FILE, 'w', encoding='utf-8') as f:
         f.write(new_content)
 
 
@@ -141,11 +157,7 @@ def main():
     current_version = get_current_version()
     print(f"\nVersione corrente: {current_version}")
     
-    # Step 1: Compila l'installer
-    if not run_build_installer():
-        sys.exit(1)
-    
-    # Step 2: Chiedi la nuova versione
+    # Step 1: Chiedi la nuova versione
     print("\n" + "-" * 60)
     while True:
         new_version = input("\nInserisci la nuova versione (formato x.x.x): ").strip()
@@ -155,19 +167,26 @@ def main():
         else:
             print("✗ Formato non valido. Usa il formato x.x.x (es: 1.2.3)")
     
-    # Step 3: Chiedi il messaggio di changelog
+    # Step 2: Chiedi il messaggio di changelog
     print("\nInserisci il messaggio di changelog (invio per messaggio default):")
     changelog_message = input("> ").strip()
     
-    # Step 4: Aggiorna i file
+    # Step 3: Aggiorna i file di versione PRIMA di compilare l'installer
     print("\n" + "-" * 60)
-    print("Aggiornamento file...")
+    print("Aggiornamento file di versione...")
     
     update_version_in_updater(new_version)
     print(f"✓ Versione aggiornata in {UPDATER_FILE}")
     
+    update_version_in_installer_gui(new_version)
+    print(f"✓ Versione aggiornata in {INSTALLER_GUI_FILE}")
+    
     update_changelog(new_version, changelog_message)
     print(f"✓ Changelog aggiornato in {CHANGELOG_FILE}")
+    
+    # Step 4: Compila l'installer (dopo aver aggiornato le versioni!)
+    if not run_build_installer():
+        sys.exit(1)
     
     # Step 5: Istruzioni finali
     print("\n" + "=" * 60)
