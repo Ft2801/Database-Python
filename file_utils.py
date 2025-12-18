@@ -260,3 +260,45 @@ def format_file_value(original_name: str, encrypted_filename: str) -> str:
     Returns: "original_name|encrypted_filename"
     """
     return f"{original_name}|{encrypted_filename}"
+
+
+def parse_multi_file_value(db_value: str) -> list:
+    """Parse a multi-file value from DB into list of (original_name, encrypted_filename) tuples.
+    
+    Format in DB: "original1|encrypted1;;original2|encrypted2;;..."
+    Also handles single file format for backwards compatibility.
+    """
+    if not db_value:
+        return []
+    
+    files = []
+    # Split by ";;" for multiple files
+    parts = db_value.split(';;')
+    for part in parts:
+        if part.strip():
+            original, encrypted = parse_file_value(part.strip())
+            if original and encrypted:
+                files.append((original, encrypted))
+    
+    return files
+
+
+def format_multi_file_value(files: list) -> str:
+    """Format multiple files for DB storage.
+    
+    files: list of (original_name, encrypted_filename) tuples
+    Returns: "original1|encrypted1;;original2|encrypted2;;..."
+    """
+    if not files:
+        return ""
+    
+    parts = [format_file_value(orig, enc) for orig, enc in files]
+    return ";;".join(parts)
+
+
+def get_display_names_from_multi_file(db_value: str) -> str:
+    """Get comma-separated display names from multi-file DB value."""
+    files = parse_multi_file_value(db_value)
+    if not files:
+        return ""
+    return ", ".join([f[0] for f in files])

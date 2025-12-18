@@ -2,7 +2,7 @@ from typing import Optional
 from PyQt6.QtWidgets import (
     QFrame, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QLineEdit,
     QListWidget, QListWidgetItem, QTableWidget, QTableWidgetItem,
-    QComboBox, QHeaderView, QMessageBox, QMenu
+    QComboBox, QHeaderView, QMessageBox, QMenu, QPlainTextEdit
 )
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QFont, QAction
@@ -15,7 +15,28 @@ from database import DatabaseManager
 import os
 import subprocess
 import sys
-from file_utils import get_files_dir, parse_file_value, decrypt_file_to_temp
+from file_utils import get_files_dir, parse_file_value, decrypt_file_to_temp, parse_multi_file_value, get_display_names_from_multi_file
+
+
+class CellTextEdit(QPlainTextEdit):
+    """Custom text edit for table cell editing. Enter saves, Shift+Enter adds newline."""
+    save_requested = pyqtSignal()
+    
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setMinimumHeight(80)
+        self.setMaximumHeight(150)
+    
+    def keyPressEvent(self, event):
+        if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+            if event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
+                # Shift+Enter inserts newline
+                super().keyPressEvent(event)
+            else:
+                # Enter saves
+                self.save_requested.emit()
+        else:
+            super().keyPressEvent(event)
 
 
 class NavBar(QFrame):
@@ -35,17 +56,12 @@ class NavBar(QFrame):
         layout.setContentsMargins(20, 15, 20, 15)
         layout.setSpacing(20)
         
-        title = QLabel("Database Pro")
+        title = QLabel("Gestione Database")
         title_font = QFont("Segoe UI", 16, QFont.Weight.Bold)
         title.setFont(title_font)
         # default label color
         
-        subtitle = QLabel("Gestione Dati Avanzata")
-        subtitle_font = QFont("Segoe UI", 9)
-        subtitle.setFont(subtitle_font)
-        
         layout.addWidget(title)
-        layout.addWidget(subtitle)
         layout.addStretch()
         
         backup_btn = QPushButton("Backup")
@@ -166,7 +182,7 @@ class MainArea(QFrame):
         self.search_input = QLineEdit()
         self.search_input.setMaximumWidth(200)
         self.search_input.setPlaceholderText("Cerca...")
-        InputValidator.restrict_input(self.search_input, r'^[a-zA-Z0-9\s\-._@]*$')
+        # No restriction on search input - allow any characters
         
         header_layout.addWidget(search_label)
         header_layout.addWidget(self.search_input)
@@ -202,6 +218,8 @@ class MainArea(QFrame):
         self.table_widget.keyPressEvent = self.table_key_press_event
         self.table_widget.verticalHeader().setStretchLastSection(False)
         self.table_widget.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+        # Enable word wrap for multiline text display in cells
+        self.table_widget.setWordWrap(True)
         
         # Abilita il doppio click sugli header per rinominare le colonne
         self.table_widget.horizontalHeader().sectionDoubleClicked.connect(self.rename_column)
@@ -265,9 +283,9 @@ class MainArea(QFrame):
                 spec_type = self.db_manager.get_special_type(self.current_table, col_name)
                 
                 if spec_type and spec_type[0] == "FILE" and value is not None:
-                    # display only the original filename (parsed from "original|encrypted")
-                    original_name, _ = parse_file_value(str(value))
-                    item = QTableWidgetItem(original_name if original_name else "[File]")
+                    # Display multi-file names (comma-separated)
+                    display_names = get_display_names_from_multi_file(str(value))
+                    item = QTableWidgetItem(display_names if display_names else "[Nessun file]")
                     # Store full DB value for file operations
                     item.setData(Qt.ItemDataRole.UserRole + 1, str(value))
                 else:
@@ -288,8 +306,8 @@ class MainArea(QFrame):
         current_height = self.table_widget.rowHeight(row_idx)
         if current_height < 30:
             self.table_widget.setRowHeight(row_idx, 30)
-        elif current_height > 200:
-            self.table_widget.setRowHeight(row_idx, 200)
+        elif current_height > 300:
+            self.table_widget.setRowHeight(row_idx, 300)
     
     def table_key_press_event(self, event):
         from PyQt6.QtGui import QKeySequence
@@ -320,32 +338,26 @@ class MainArea(QFrame):
             # Get full DB value from item data
             db_value = item.data(Qt.ItemDataRole.UserRole + 1)
             if db_value:
-                self.open_encrypted_file(db_value)
+                self.show_file_selection_dialog(db_value)
             else:
                 QMessageBox.information(self, "Info", "Nessun file associato a questa cella")
         else:
-            columns = self.db_manager.get_columns(self.current_table)
-            # +1 perché saltiamo la colonna ID
-            col_type = columns[col + 1][2]
-            
-            if col_type == "REAL":
-                self.edit_number_cell(item)
-            else:
-                self.edit_text_cell(item)
+            # All other column types use text editing (including legacy REAL columns)
+            self.edit_text_cell(item)
     
     def edit_text_cell(self, item):
         from PyQt6.QtWidgets import QDialog
         dialog = QDialog(self)
         dialog.setWindowTitle("Modifica Cella")
-        dialog.setGeometry(300, 300, 400, 150)
+        dialog.setGeometry(300, 300, 450, 250)
         # use default dialog styling
         
         layout = QVBoxLayout()
-        layout.addWidget(QLabel("Valore:"))
+        hint_label = QLabel("Valore (Shift+Invio per nuova riga, Invio per salvare):")
+        layout.addWidget(hint_label)
         
-        editor = QLineEdit()
-        editor.setText(item.text())
-        InputValidator.restrict_input(editor, r'^[a-zA-Z0-9\s\-._@]*$')
+        editor = CellTextEdit()
+        editor.setPlainText(item.text())
         layout.addWidget(editor)
         
         btn_layout = QHBoxLayout()
@@ -359,12 +371,13 @@ class MainArea(QFrame):
         layout.addLayout(btn_layout)
         
         dialog.setLayout(layout)
-        editor.returnPressed.connect(dialog.accept)
+        editor.save_requested.connect(dialog.accept)
         
         if dialog.exec() == QDialog.DialogCode.Accepted:
             row = item.row()
             col = item.column()
-            item.setText(editor.text())
+            new_text = editor.toPlainText()
+            item.setText(new_text)
             self.adjust_row_height(row)
             self.table_widget.resizeRowsToContents()
             
@@ -372,7 +385,7 @@ class MainArea(QFrame):
             if record_id is not None:
                 columns = self.db_manager.get_columns(self.current_table)
                 col_name = columns[col + 1][1]
-                self.db_manager.update_record(self.current_table, record_id, {col_name: editor.text()})
+                self.db_manager.update_record(self.current_table, record_id, {col_name: new_text})
             
             self.table_widget.clearSelection()
     
@@ -469,7 +482,7 @@ class MainArea(QFrame):
             # Get full DB value from item data
             db_value = item.data(Qt.ItemDataRole.UserRole + 1)
             if db_value:
-                self.open_encrypted_file(db_value)
+                self.show_file_selection_dialog(db_value)
             else:
                 QMessageBox.information(self, "Info", "Nessun file associato a questa cella")
             return
@@ -500,7 +513,7 @@ class MainArea(QFrame):
             db_value = item.data(Qt.ItemDataRole.UserRole + 1)
             if db_value:
                 open_action = QAction("Apri File", self)
-                open_action.triggered.connect(lambda: self.open_encrypted_file(db_value))
+                open_action.triggered.connect(lambda: self.show_file_selection_dialog(db_value))
                 menu.addAction(open_action)
             else:
                 info_action = QAction("Nessun file", self)
@@ -514,17 +527,59 @@ class MainArea(QFrame):
 
         menu.exec(self.table_widget.viewport().mapToGlobal(pos))
 
-    def open_encrypted_file(self, db_value: str):
-        """Decrypt and open an encrypted file.
+    def show_file_selection_dialog(self, db_value: str):
+        """Show a dialog to select which file to open when multiple files exist."""
+        from PyQt6.QtWidgets import QDialog, QListWidget
         
-        db_value is in format "original_name|encrypted_filename"
-        """
+        files = parse_multi_file_value(db_value)
+        
+        if not files:
+            QMessageBox.information(self, "Info", "Nessun file associato")
+            return
+        
+        if len(files) == 1:
+            # Only one file, open it directly
+            self.open_single_file(files[0][0], files[0][1])
+            return
+        
+        # Multiple files - show selection dialog
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Seleziona File da Aprire")
+        dialog.setGeometry(300, 300, 400, 300)
+        
+        layout = QVBoxLayout()
+        layout.addWidget(QLabel("Seleziona il file da aprire:"))
+        
+        file_list = QListWidget()
+        for orig, _ in files:
+            file_list.addItem(orig)
+        layout.addWidget(file_list)
+        
+        btn_layout = QHBoxLayout()
+        cancel_btn = QPushButton("Annulla")
+        cancel_btn.clicked.connect(dialog.reject)
+        open_btn = QPushButton("Apri")
+        
+        def open_selected():
+            current_row = file_list.currentRow()
+            if current_row >= 0:
+                orig, enc = files[current_row]
+                dialog.accept()
+                self.open_single_file(orig, enc)
+        
+        open_btn.clicked.connect(open_selected)
+        file_list.itemDoubleClicked.connect(open_selected)
+        
+        btn_layout.addWidget(cancel_btn)
+        btn_layout.addWidget(open_btn)
+        layout.addLayout(btn_layout)
+        
+        dialog.setLayout(layout)
+        dialog.exec()
+
+    def open_single_file(self, original_name: str, encrypted_filename: str):
+        """Open a single encrypted file."""
         try:
-            original_name, encrypted_filename = parse_file_value(db_value)
-            if not encrypted_filename:
-                QMessageBox.warning(self, "Errore", "File non valido")
-                return
-            
             # Decrypt file to temp location
             temp_path = decrypt_file_to_temp(encrypted_filename, original_name or encrypted_filename)
             

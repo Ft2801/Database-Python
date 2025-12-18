@@ -1,17 +1,49 @@
 from typing import Tuple
 import os
-from file_utils import get_files_dir, encrypt_file, parse_file_value, format_file_value, delete_encrypted_file
+import uuid
+from file_utils import (
+    get_files_dir, encrypt_file, parse_file_value, format_file_value, 
+    delete_encrypted_file, parse_multi_file_value, format_multi_file_value,
+    get_display_names_from_multi_file
+)
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QLineEdit,
-    QComboBox, QListWidget, QFrame, QScrollArea, QWidget, QMessageBox,
-    QFileDialog, QDateEdit, QDoubleSpinBox, QApplication
+    QComboBox, QListWidget, QListWidgetItem, QFrame, QScrollArea, QWidget, QMessageBox,
+    QFileDialog, QDateEdit, QDoubleSpinBox, QApplication, QPlainTextEdit
 )
-from PyQt6.QtCore import QDate
+from PyQt6.QtCore import QDate, Qt
 from PyQt6.QtGui import QFont, QPixmap
 
 from validators import InputValidator
 from config import StyleManager
 from database import DatabaseManager
+
+
+class MultiLineTextEdit(QPlainTextEdit):
+    """Custom text edit that saves on Enter and allows newlines with Shift+Enter."""
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setMaximumHeight(100)
+        self.setMinimumHeight(60)
+    
+    def keyPressEvent(self, event):
+        # Shift+Enter inserts a newline
+        if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+            if event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
+                # Insert newline
+                super().keyPressEvent(event)
+            else:
+                # Trigger save (handled by parent dialog)
+                # Find parent RecordDialog and save
+                parent = self.parent()
+                while parent:
+                    if hasattr(parent, 'save_btn_ref') and hasattr(parent, 'save_record'):
+                        if parent.save_btn_ref and parent.save_btn_ref.isEnabled():
+                            parent.save_record()
+                        return
+                    parent = parent.parent()
+        else:
+            super().keyPressEvent(event)
 
 
 class TutorialDialog(QDialog):
@@ -84,8 +116,8 @@ class TutorialDialog(QDialog):
                 "content": [
                     "• Aggiungi Colonna: Aggiunge una nuova colonna alla tabella",
                     "• Doppio clic sull'intestazione: Rinomina una colonna esistente",
-                    "• Tipi disponibili: TESTO, NUMERO, DATA, FILE, RELAZIONE",
-                    "• Le colonne RELAZIONE collegano i dati tra tabelle diverse"
+                    "• Tipi disponibili: TESTO, DATA, FILE",
+                    "• Le colonne FILE permettono di allegare più file a ciascun record"
                 ]
             },
             {
@@ -214,7 +246,7 @@ class NewTableDialog(QDialog):
         
         type_label = QLabel("Tipo:")
         self.col_type_combo = QComboBox()
-        self.col_type_combo.addItems(["TESTO", "NUMERO", "DATA", "FILE", "RELAZIONE"])
+        self.col_type_combo.addItems(["TESTO", "DATA", "FILE"])
         self.col_type_combo.setMaximumWidth(120)
         input_layout.addWidget(type_label)
         input_layout.addWidget(self.col_type_combo)
@@ -255,48 +287,10 @@ class NewTableDialog(QDialog):
             QMessageBox.warning(self, "Errore", f"Esiste già una colonna con il nome '{col_name}'.")
             return
         
-        if col_type == "RELAZIONE":
-            tables = self.db_manager.get_tables()
-            if not tables:
-                QMessageBox.warning(self, "Errore", "Nessuna tabella disponibile per il collegamento.")
-                return
-            
-            relation_dialog = QDialog(self)
-            relation_dialog.setWindowTitle("Collegamento a tabella")
-            
-            rel_layout = QVBoxLayout()
-            rel_layout.addWidget(QLabel("Seleziona tabella di destinazione:"))
-            
-            table_combo = QComboBox()
-            table_combo.addItems(tables)
-            rel_layout.addWidget(table_combo)
-            
-            def confirm_relation():
-                target = table_combo.currentText()
-                self.columns.append({
-                    'name': col_name,
-                    'sql_type': 'TEXT',
-                    'special': 'RELATION',
-                    'extra': target
-                })
-                self.update_columns_list()
-                self.col_name_input.clear()
-                relation_dialog.accept()
-            
-            ok_btn = QPushButton("OK")
-            ok_btn.clicked.connect(confirm_relation)
-            rel_layout.addWidget(ok_btn)
-            
-            relation_dialog.setLayout(rel_layout)
-            relation_dialog.exec()
-            return
-        
         sql_type = "TEXT"
         special = ""
         
-        if col_type == "NUMERO":
-            sql_type = "REAL"
-        elif col_type == "FILE":
+        if col_type == "FILE":
             sql_type = "TEXT"
             special = "FILE"
         elif col_type == "DATA":
@@ -385,97 +379,97 @@ class RecordDialog(QDialog):
             spec_type = spec_info[0] if spec_info else None
             
             if spec_type == "FILE":
-                # File picker: encrypt and copy selected file into app's files/ folder
-                import uuid
+                # Multi-file picker: encrypt and copy selected files into app's files/ folder
                 file_frame = QFrame()
-                file_layout = QHBoxLayout()
+                file_main_layout = QVBoxLayout()
+                file_main_layout.setContentsMargins(0, 0, 0, 0)
 
-                file_label = QLabel("Nessun file selezionato")
-                file_label.setMinimumHeight(24)
-                file_layout.addWidget(file_label)
+                # List widget to show selected files
+                file_list = QListWidget()
+                file_list.setMaximumHeight(100)
+                file_main_layout.addWidget(file_list)
 
-                # widget data keeps the DB value (original_name|encrypted_filename) and a flag
-                file_data = {"filename": value, "remove_old": False}
+                # Data structure to hold list of files: [(original_name, encrypted_filename), ...]
+                existing_files = parse_multi_file_value(str(value)) if value else []
+                file_data = {"files": existing_files.copy()}
 
-                # If an existing file value is present, show only the original name
-                if value:
-                    original_name, _ = parse_file_value(str(value))
-                    file_label.setText(original_name if original_name else str(value))
+                def update_file_list(lst, data):
+                    lst.clear()
+                    for orig, _ in data["files"]:
+                        lst.addItem(orig)
 
-                def make_choose_file(lbl, data):
-                    def choose_file():
-                        src_path, _ = QFileDialog.getOpenFileName(self, "Seleziona File", "", "Tutti i file (*.*)")
-                        if src_path:
-                            try:
-                                # Delete old file if replacing
-                                old_value = data.get('filename')
-                                if old_value:
-                                    _, old_encrypted = parse_file_value(str(old_value))
-                                    if old_encrypted:
-                                        delete_encrypted_file(old_encrypted)
-                                
-                                files_dir = get_files_dir()
-                                original_name = os.path.basename(src_path)
-                                # Create encrypted filename with .enc extension
-                                encrypted_name = f"{uuid.uuid4().hex}.enc"
-                                dest_path = os.path.join(files_dir, encrypted_name)
-                                # Encrypt and save the file
-                                if encrypt_file(src_path, dest_path):
-                                    # Store as "original_name|encrypted_filename"
-                                    db_value = format_file_value(original_name, encrypted_name)
-                                    data['filename'] = db_value
-                                    data['remove_old'] = True
-                                    # Show only original name in UI
-                                    lbl.setText(original_name)
-                            except Exception:
-                                pass
+                update_file_list(file_list, file_data)
+
+                def make_add_file(lst, data):
+                    def add_file():
+                        src_paths, _ = QFileDialog.getOpenFileNames(self, "Seleziona File", "", "Tutti i file (*.*)")
+                        for src_path in src_paths:
+                            if src_path:
+                                try:
+                                    files_dir = get_files_dir()
+                                    original_name = os.path.basename(src_path)
+                                    # Create encrypted filename with .enc extension
+                                    encrypted_name = f"{uuid.uuid4().hex}.enc"
+                                    dest_path = os.path.join(files_dir, encrypted_name)
+                                    # Encrypt and save the file
+                                    if encrypt_file(src_path, dest_path):
+                                        data["files"].append((original_name, encrypted_name))
+                                except Exception:
+                                    pass
+                        update_file_list(lst, data)
                         self.validate_form()
-                    return choose_file
+                    return add_file
 
-                def make_remove_file(lbl, data):
-                    def remove_file():
-                        if data.get('filename'):
+                def make_remove_selected(lst, data):
+                    def remove_selected():
+                        current_row = lst.currentRow()
+                        if current_row >= 0 and current_row < len(data["files"]):
                             # Delete the physical file
-                            _, encrypted_filename = parse_file_value(str(data['filename']))
+                            _, encrypted_filename = data["files"][current_row]
                             if encrypted_filename:
                                 delete_encrypted_file(encrypted_filename)
-                            data['filename'] = None
-                            data['remove_old'] = True
-                        lbl.setText("Nessun file selezionato")
+                            data["files"].pop(current_row)
+                            update_file_list(lst, data)
                         self.validate_form()
-                    return remove_file
+                    return remove_selected
 
-                choose_btn = QPushButton("Scegli File")
-                choose_btn.setMaximumWidth(120)
-                choose_btn.clicked.connect(make_choose_file(file_label, file_data))
-                file_layout.addWidget(choose_btn)
+                def make_remove_all(lst, data):
+                    def remove_all():
+                        for _, encrypted_filename in data["files"]:
+                            if encrypted_filename:
+                                delete_encrypted_file(encrypted_filename)
+                        data["files"] = []
+                        update_file_list(lst, data)
+                        self.validate_form()
+                    return remove_all
 
-                remove_btn = QPushButton("Rimuovi File")
-                remove_btn.setMaximumWidth(120)
-                remove_btn.clicked.connect(make_remove_file(file_label, file_data))
-                file_layout.addWidget(remove_btn)
+                btn_layout = QHBoxLayout()
+                add_btn = QPushButton("Aggiungi File")
+                add_btn.clicked.connect(make_add_file(file_list, file_data))
+                btn_layout.addWidget(add_btn)
 
-                file_frame.setLayout(file_layout)
+                remove_btn = QPushButton("Rimuovi Selezionato")
+                remove_btn.clicked.connect(make_remove_selected(file_list, file_data))
+                btn_layout.addWidget(remove_btn)
+
+                remove_all_btn = QPushButton("Rimuovi Tutti")
+                remove_all_btn.clicked.connect(make_remove_all(file_list, file_data))
+                btn_layout.addWidget(remove_all_btn)
+
+                file_main_layout.addLayout(btn_layout)
+                file_frame.setLayout(file_main_layout)
                 form_layout.addWidget(file_frame)
 
                 self.widgets[col_name] = {"type": "FILE", "data": file_data}
                 
             elif spec_type == "RELATION":
-                target_table = spec_info[1]
-                target_cols = self.db_manager.get_columns(target_table)
-                disp_col_idx = 1 if len(target_cols) > 1 else 0
-                
-                target_records = self.db_manager.get_records(target_table)
-                options = [str(rec[disp_col_idx]) for rec in target_records]
-                
-                combo = QComboBox()
-                combo.addItems(options)
-                if value:
-                    combo.setCurrentText(str(value))
-                combo.currentTextChanged.connect(self.validate_form)
-                form_layout.addWidget(combo)
-                
-                self.widgets[col_name] = {"type": "TEXT", "widget": combo}
+                # Legacy RELATION support - treat as text field
+                text_input = MultiLineTextEdit()
+                if value is not None:
+                    text_input.setPlainText(str(value))
+                text_input.textChanged.connect(self.validate_form)
+                form_layout.addWidget(text_input)
+                self.widgets[col_name] = {"type": "TEXT", "widget": text_input}
                 
             elif spec_type == "DATE":
                 date_frame = QFrame()
@@ -498,20 +492,18 @@ class RecordDialog(QDialog):
                 col_type_from_pragma = col[2]
                 
                 if col_type_from_pragma == "REAL":
-                    number_input = QDoubleSpinBox()
-                    number_input.setMinimum(-999999999.99)
-                    number_input.setMaximum(999999999.99)
-                    number_input.setDecimals(2)
+                    # For legacy REAL columns, use text edit (NUMERO type removed)
+                    text_input = MultiLineTextEdit()
                     if value is not None:
-                        number_input.setValue(float(value) if value else 0.0)
-                    number_input.valueChanged.connect(self.validate_form)
-                    form_layout.addWidget(number_input)
-                    self.widgets[col_name] = {"type": "NUMBER", "widget": number_input}
+                        text_input.setPlainText(str(value))
+                    text_input.textChanged.connect(self.validate_form)
+                    form_layout.addWidget(text_input)
+                    self.widgets[col_name] = {"type": "TEXT", "widget": text_input}
                 else:
-                    text_input = QLineEdit()
+                    # Use multiline text edit that allows any character
+                    text_input = MultiLineTextEdit()
                     if value is not None:
-                        text_input.setText(str(value))
-                    InputValidator.restrict_input(text_input, r'^[a-zA-Z0-9\s\-._@]*$')
+                        text_input.setPlainText(str(value))
                     text_input.textChanged.connect(self.validate_form)
                     form_layout.addWidget(text_input)
                     self.widgets[col_name] = {"type": "TEXT", "widget": text_input}
@@ -548,7 +540,9 @@ class RecordDialog(QDialog):
             widget_type = widget_info["type"]
             
             if widget_type == "FILE":
-                data[col_name] = widget_info["data"].get("filename")
+                # Multi-file support: format list of files into DB string
+                files_list = widget_info["data"].get("files", [])
+                data[col_name] = format_multi_file_value(files_list) if files_list else None
             elif widget_type == "DATE":
                 date_edit = widget_info["widget"]
                 date_value = date_edit.date().toString("yyyy-MM-dd")
@@ -557,10 +551,6 @@ class RecordDialog(QDialog):
                     errors.append(f"{col_name}: {error_msg}")
                 else:
                     data[col_name] = date_value
-            elif widget_type == "NUMBER":
-                number_widget = widget_info["widget"]
-                value = number_widget.value()
-                data[col_name] = value
             elif isinstance(widget_info["widget"], QComboBox):
                 value = widget_info["widget"].currentText()
                 is_valid, error_msg = InputValidator.validate_text(value)
@@ -569,8 +559,12 @@ class RecordDialog(QDialog):
                 else:
                     data[col_name] = value
             else:
+                # Handle both QLineEdit and QPlainTextEdit (MultiLineTextEdit)
                 text_widget = widget_info["widget"]
-                value = text_widget.text()
+                if hasattr(text_widget, 'toPlainText'):
+                    value = text_widget.toPlainText()
+                else:
+                    value = text_widget.text()
                 is_valid, error_msg = InputValidator.validate_text(value)
                 if not is_valid:
                     errors.append(f"{col_name}: {error_msg}")
@@ -637,18 +631,17 @@ class RecordDialog(QDialog):
                 is_valid, error_msg = InputValidator.validate_date(date_value)
                 if not is_valid:
                     errors.append(f"{col_name}: {error_msg}")
-            elif widget_type == "NUMBER":
-                number_widget = widget_info["widget"]
-                value = number_widget.value()
-                if value == 0.0 and str(number_widget.value()) not in ["0.0", "0"]:
-                    errors.append(f"{col_name}: Numero non valido")
             elif isinstance(widget_info["widget"], QComboBox):
                 value = widget_info["widget"].currentText()
                 if not value:
                     errors.append(f"{col_name}: Selezionare un valore")
             else:
+                # Handle both QLineEdit and QPlainTextEdit (MultiLineTextEdit)
                 text_widget = widget_info["widget"]
-                value = text_widget.text()
+                if hasattr(text_widget, 'toPlainText'):
+                    value = text_widget.toPlainText()
+                else:
+                    value = text_widget.text()
                 is_valid, error_msg = InputValidator.validate_text(value)
                 if not is_valid:
                     errors.append(f"{col_name}: {error_msg}")
@@ -699,7 +692,7 @@ class AddColumnDialog(QDialog):
         
         layout.addWidget(QLabel("Tipo:"))
         self.type_combo = QComboBox()
-        self.type_combo.addItems(["TESTO", "NUMERO", "DATA", "FILE", "RELAZIONE"])
+        self.type_combo.addItems(["TESTO", "DATA", "FILE"])
         self.type_combo.currentTextChanged.connect(self.on_type_changed)
         layout.addWidget(self.type_combo)
         
@@ -756,16 +749,11 @@ class AddColumnDialog(QDialog):
         special_type = ""
         extra_info = ""
         
-        if col_type == "NUMERO":
-            sql_type = "REAL"
-        elif col_type == "FILE":
+        if col_type == "FILE":
             sql_type = "TEXT"
             special_type = "FILE"
         elif col_type == "DATA":
             special_type = "DATE"
-        elif col_type == "RELAZIONE":
-            special_type = "RELATION"
-            extra_info = self.relation_combo.currentText()
         
         if self.db_manager.add_column(self.table_name, col_name, sql_type, special_type, extra_info):
             QMessageBox.information(self, "Successo", f"Colonna '{col_name}' aggiunta!")

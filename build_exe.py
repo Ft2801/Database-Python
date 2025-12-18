@@ -1,5 +1,5 @@
 """
-Script per creare l'eseguibile di Database Pro usando PyInstaller
+Script per creare l'eseguibile dell'applicazione Gestione Database usando PyInstaller
 """
 import os
 import subprocess
@@ -9,7 +9,7 @@ def build_executable():
     """Crea l'eseguibile dell'applicazione"""
     
     print("=" * 60)
-    print("Database Pro - Build Eseguibile")
+    print("Gestione Database - Build Eseguibile")
     print("=" * 60)
     
     # Verifica che PyInstaller sia installato
