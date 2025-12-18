@@ -1,4 +1,4 @@
-# Database Pro - Gestione Avanzata
+# Gestione Database
 
 Un'applicazione desktop moderna e sicura per la gestione di database SQLite con crittografia integrata.
 

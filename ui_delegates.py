@@ -94,7 +94,9 @@ class EditableTableDelegate(QStyledItemDelegate):
             painter.save()
             
             doc = QTextDocument()
-            doc.setHtml(text)
+            # Convert newlines to HTML breaks for proper multiline display
+            html_text = str(text).replace('\n', '<br>')
+            doc.setHtml(html_text)
             doc.setTextWidth(option.rect.width() - 4)
             
             fg_color = option.palette.color(QPalette.ColorRole.Text)
@@ -115,7 +117,9 @@ class EditableTableDelegate(QStyledItemDelegate):
         text = index.data(Qt.ItemDataRole.DisplayRole)
         if text:
             doc = QTextDocument()
-            doc.setHtml(text)
-            doc.setTextWidth(option.rect.width() - 4)
+            # Convert newlines to HTML breaks for proper size calculation
+            html_text = str(text).replace('\n', '<br>')
+            doc.setHtml(html_text)
+            doc.setTextWidth(option.rect.width() - 4 if option.rect.width() > 4 else 150)
             return QSize(int(doc.idealWidth()), int(doc.size().height()) + 4)
         return super().sizeHint(option, index)

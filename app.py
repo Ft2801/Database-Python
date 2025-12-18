@@ -33,12 +33,12 @@ class ModernDBApp(QMainWindow):
         super().__init__()
         
         self.app_path = get_app_path()
-        self.db_path = os.path.join(self.app_path, DB_NAME)
         self.config_path = os.path.join(self.app_path, CONFIG_FILE)
 
-        # Determine auth and key paths. For frozen (packaged) builds we want to
-        # place these in a persistent AppData location so the packaged EXE uses
-        # its own default auth/key rather than any developer-local files.
+        # Determine data paths. For frozen (packaged) builds we want to
+        # place database, auth and key in a persistent AppData location so:
+        # 1. User can delete/replace EXE without losing data
+        # 2. Database persists across app updates
         try:
             import sys as _sys
             if getattr(_sys, 'frozen', False):
@@ -48,6 +48,8 @@ class ModernDBApp(QMainWindow):
         except Exception:
             data_dir = self.app_path
 
+        # Database, auth, and key are all in the persistent data directory
+        self.db_path = os.path.join(data_dir, DB_NAME)
         self.auth_path = os.path.join(data_dir, 'auth.json')
         key_path = os.path.join(data_dir, 'db_key.key')
 
@@ -66,7 +68,7 @@ class ModernDBApp(QMainWindow):
             pass
         
         self.init_ui()
-        self.setWindowTitle("Database Pro - Gestione Avanzata")
+        self.setWindowTitle("Gestione Database")
         
         # Imposta l'icona dell'applicazione
         logo_path = os.path.join(self.app_path, "logo.png")
@@ -215,7 +217,7 @@ class ModernDBApp(QMainWindow):
         if reply == QMessageBox.StandardButton.Yes:
             # Before dropping, delete any files associated with FILE columns
             try:
-                from file_utils import get_files_dir, parse_file_value
+                from file_utils import get_files_dir, parse_multi_file_value
                 cols = self.db_manager.get_columns(table)
                 file_cols = []
                 for col in cols:
@@ -235,12 +237,13 @@ class ModernDBApp(QMainWindow):
                                 db_value = record[col_idx]
                                 if db_value:
                                     try:
-                                        # Parse the new format "original|encrypted"
-                                        _, encrypted_filename = parse_file_value(str(db_value))
-                                        if encrypted_filename:
-                                            file_path = os.path.join(files_dir, encrypted_filename)
-                                            if os.path.exists(file_path):
-                                                os.remove(file_path)
+                                        # Parse multi-file format and delete all files
+                                        files = parse_multi_file_value(str(db_value))
+                                        for _, encrypted_filename in files:
+                                            if encrypted_filename:
+                                                file_path = os.path.join(files_dir, encrypted_filename)
+                                                if os.path.exists(file_path):
+                                                    os.remove(file_path)
                                     except Exception:
                                         pass
             except Exception:
@@ -296,7 +299,7 @@ class ModernDBApp(QMainWindow):
 
             # Before deleting the DB row, remove any copied files for FILE columns
             try:
-                from file_utils import parse_file_value
+                from file_utils import parse_multi_file_value
                 old_record = self.db_manager.get_records(self.main_area.current_table, "id=?", (record_id,))
                 if old_record:
                     cols = self.db_manager.get_columns(self.main_area.current_table)
@@ -307,17 +310,18 @@ class ModernDBApp(QMainWindow):
                             db_value = old_record[0][idx]
                             if db_value:
                                 try:
-                                    # Parse the new format "original|encrypted"
-                                    _, encrypted_filename = parse_file_value(str(db_value))
-                                    if encrypted_filename:
-                                        try:
-                                            files_dir = get_files_dir()
-                                            path_to_remove = os.path.join(files_dir, encrypted_filename)
-                                        except Exception:
-                                            files_dir = os.path.join(self.app_path, 'files')
-                                            path_to_remove = os.path.join(files_dir, encrypted_filename)
-                                        if os.path.exists(path_to_remove):
-                                            os.remove(path_to_remove)
+                                    # Parse multi-file format and delete all files
+                                    files = parse_multi_file_value(str(db_value))
+                                    for _, encrypted_filename in files:
+                                        if encrypted_filename:
+                                            try:
+                                                files_dir = get_files_dir()
+                                                path_to_remove = os.path.join(files_dir, encrypted_filename)
+                                            except Exception:
+                                                files_dir = os.path.join(self.app_path, 'files')
+                                                path_to_remove = os.path.join(files_dir, encrypted_filename)
+                                            if os.path.exists(path_to_remove):
+                                                os.remove(path_to_remove)
                                 except Exception:
                                     pass
             except Exception:
@@ -663,12 +667,8 @@ if __name__ == "__main__":
                 _data_dir = os.path.dirname(_get_files_dir())
                 os.makedirs(_data_dir, exist_ok=True)
                 auth_path = os.path.join(_data_dir, 'auth.json')
-                # Overwrite or create with default 'Admin' for packaged app
-                try:
-                    auth_mod.set_password(auth_path, 'Admin')
-                except Exception:
-                    # Fallback to ensure file exists
-                    auth_mod.ensure_password_file(auth_path, default_password='Admin')
+                # Only create auth file if it doesn't exist - preserve user password changes
+                auth_mod.ensure_password_file(auth_path, default_password='Admin')
             except Exception:
                 # Final fallback to local path
                 auth_path = os.path.join(app_path, 'auth.json')

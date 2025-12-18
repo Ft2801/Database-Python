@@ -6,7 +6,7 @@ from PyQt6.QtCore import QDate
 
 class InputValidator:
     @staticmethod
-    def validate_text(value: str, min_length: int = 0, max_length: int = 500) -> Tuple[bool, str]:
+    def validate_text(value: str, min_length: int = 0, max_length: int = 5000) -> Tuple[bool, str]:
         if not value and min_length > 0:
             return False, f"Minimum {min_length} characters required"
         if len(value) > max_length:
@@ -46,6 +46,7 @@ class InputValidator:
     
     @staticmethod
     def restrict_input(line_edit: QLineEdit, pattern: str):
+        """Restrict input to column names only (alphanumeric and underscore)."""
         def on_text_changed(text):
             filtered = ''.join(c for c in text if re.match(pattern, c))
             if filtered != text:

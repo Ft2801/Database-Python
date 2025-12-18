@@ -27,7 +27,7 @@ def get_data_dir(app_name: str = "DatabasePro") -> str:
 def setup_legacy_key():
     """Setup della chiave legacy per retrocompatibilità."""
     print("=" * 70)
-    print("Database Pro - Setup Chiave Legacy")
+    print("Gestione Database - Setup Chiave Legacy")
     print("=" * 70)
     print()
     print("Questo script configura una chiave legacy per decrittare file vecchi.")
