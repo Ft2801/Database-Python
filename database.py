@@ -201,9 +201,10 @@ class DatabaseManager:
         try:
             cols_sql = ["id INTEGER PRIMARY KEY AUTOINCREMENT"]
             for col in columns:
-                cols_sql.append(f"{col['name']} {col['sql_type']}")
+                cols_sql.append(f'"{col["name"]}" {col["sql_type"]}')
             
-            sql = f"CREATE TABLE {table_name} ({', '.join(cols_sql)})"
+            cols_joined = ", ".join(cols_sql)
+            sql = f'CREATE TABLE "{table_name}" ({cols_joined})'
             self.cursor.execute(sql)
             
             for col in columns:
@@ -222,7 +223,7 @@ class DatabaseManager:
     
     def drop_table(self, table_name: str) -> bool:
         try:
-            self.cursor.execute(f"DROP TABLE {table_name}")
+            self.cursor.execute(f'DROP TABLE "{table_name}"')
             self.cursor.execute("DELETE FROM _sys_columns WHERE table_name=?", (table_name,))
             self.conn.commit()
             self.sync()
@@ -231,22 +232,23 @@ class DatabaseManager:
             return False
     
     def get_columns(self, table_name: str) -> List[Tuple]:
-        self.cursor.execute(f"PRAGMA table_info({table_name})")
+        self.cursor.execute(f'PRAGMA table_info("{table_name}")')
         return self.cursor.fetchall()
     
     def get_records(self, table_name: str, where_clause: str = "", params: Tuple = ()) -> List[Tuple]:
         if where_clause:
-            sql = f"SELECT * FROM {table_name} WHERE {where_clause}"
+            sql = f'SELECT * FROM "{table_name}" WHERE {where_clause}'
             self.cursor.execute(sql, params)
         else:
-            self.cursor.execute(f"SELECT * FROM {table_name}")
+            self.cursor.execute(f'SELECT * FROM "{table_name}"')
         return self.cursor.fetchall()
     
     def insert_record(self, table_name: str, data: Dict) -> bool:
         try:
             cols = list(data.keys())
+            quoted_cols = [f'"{c}"' for c in cols]
             placeholders = ", ".join(["?" for _ in cols])
-            sql = f"INSERT INTO {table_name} ({', '.join(cols)}) VALUES ({placeholders})"
+            sql = f'INSERT INTO "{table_name}" ({", ".join(quoted_cols)}) VALUES ({placeholders})'
             self.cursor.execute(sql, list(data.values()))
             new_id = self.cursor.lastrowid
             self.conn.commit()
@@ -273,9 +275,9 @@ class DatabaseManager:
             old_record = self.get_records(table_name, "id=?", (record_id,))
             
             cols = list(data.keys())
-            set_clause = ", ".join([f"{col}=?" for col in cols])
+            set_clause = ", ".join([f'"{col}"=?' for col in cols])
             values = list(data.values()) + [record_id]
-            sql = f"UPDATE {table_name} SET {set_clause} WHERE id=?"
+            sql = f'UPDATE "{table_name}" SET {set_clause} WHERE id=?'
             self.cursor.execute(sql, values)
             
             # Ottieni il nuovo record dopo l'update
@@ -307,7 +309,7 @@ class DatabaseManager:
             # Salva il record per undo
             old_record = self.get_records(table_name, "id=?", (record_id,))
             
-            self.cursor.execute(f"DELETE FROM {table_name} WHERE id=?", (record_id,))
+            self.cursor.execute(f'DELETE FROM "{table_name}" WHERE id=?', (record_id,))
             self.conn.commit()
             
             # Salva per undo
@@ -332,7 +334,7 @@ class DatabaseManager:
     def add_column(self, table_name: str, col_name: str, sql_type: str, 
                   special_type: str = "", extra_info: str = "") -> bool:
         try:
-            self.cursor.execute(f"ALTER TABLE {table_name} ADD COLUMN {col_name} {sql_type}")
+            self.cursor.execute(f'ALTER TABLE "{table_name}" ADD COLUMN "{col_name}" {sql_type}')
             if special_type:
                 self.save_special_type(table_name, col_name, special_type, extra_info)
             self.conn.commit()
@@ -345,7 +347,7 @@ class DatabaseManager:
         """Rinomina una colonna in una tabella"""
         try:
             # SQLite supporta ALTER TABLE RENAME COLUMN da versione 3.25+
-            self.cursor.execute(f"ALTER TABLE {table_name} RENAME COLUMN {old_name} TO {new_name}")
+            self.cursor.execute(f'ALTER TABLE "{table_name}" RENAME COLUMN "{old_name}" TO "{new_name}"')
             
             # Aggiorna anche i metadati se esistono
             self.cursor.execute(
@@ -410,8 +412,9 @@ class DatabaseManager:
                 if missing:
                     return False, 0
                 
+                quoted_headers = [f'"{h}"' for h in headers]
                 placeholders = ", ".join(["?" for _ in headers])
-                sql = f"INSERT INTO {table_name} ({', '.join(headers)}) VALUES ({placeholders})"
+                sql = f'INSERT INTO "{table_name}" ({", ".join(quoted_headers)}) VALUES ({placeholders})'
                 
                 count = 0
                 for row in reader:
@@ -457,7 +460,7 @@ class DatabaseManager:
             if action == 'insert':
                 # Annulla insert = delete
                 record_id = operation['id']
-                self.cursor.execute(f"DELETE FROM {table} WHERE id=?", (record_id,))
+                self.cursor.execute(f'DELETE FROM "{table}" WHERE id=?', (record_id,))
                 self.redo_stack.append(operation)
                 
             elif action == 'delete':
@@ -466,8 +469,9 @@ class DatabaseManager:
                 columns = operation['columns']
                 col_names = [col[1] for col in columns]
                 
+                quoted_cols = [f'"{c}"' for c in col_names]
                 placeholders = ", ".join(["?" for _ in col_names])
-                sql = f"INSERT INTO {table} ({', '.join(col_names)}) VALUES ({placeholders})"
+                sql = f'INSERT INTO "{table}" ({", ".join(quoted_cols)}) VALUES ({placeholders})'
                 self.cursor.execute(sql, old_data)
                 self.redo_stack.append(operation)
                 
@@ -479,9 +483,9 @@ class DatabaseManager:
                 
                 # Crea update con i vecchi valori
                 col_names = [col[1] for col in columns[1:]]  # Skip ID
-                set_clause = ", ".join([f"{col}=?" for col in col_names])
+                set_clause = ", ".join([f'"{col}"=?' for col in col_names])
                 values = list(old_data[1:]) + [record_id]
-                sql = f"UPDATE {table} SET {set_clause} WHERE id=?"
+                sql = f'UPDATE "{table}" SET {set_clause} WHERE id=?'
                 self.cursor.execute(sql, values)
                 self.redo_stack.append(operation)
             
@@ -506,13 +510,13 @@ class DatabaseManager:
             if action == 'insert':
                 # Redo insert = elimina di nuovo il record
                 record_id = operation['id']
-                self.cursor.execute(f"DELETE FROM {table} WHERE id=?", (record_id,))
+                self.cursor.execute(f'DELETE FROM "{table}" WHERE id=?', (record_id,))
                 self.undo_stack.append(operation)
                 
             elif action == 'delete':
                 # Redo delete = elimina di nuovo il record
                 record_id = operation['id']
-                self.cursor.execute(f"DELETE FROM {table} WHERE id=?", (record_id,))
+                self.cursor.execute(f'DELETE FROM "{table}" WHERE id=?', (record_id,))
                 self.undo_stack.append(operation)
                 
             elif action == 'update':
@@ -524,9 +528,9 @@ class DatabaseManager:
                     
                     # Crea update con i nuovi valori
                     col_names = [col[1] for col in columns[1:]]  # Skip ID
-                    set_clause = ", ".join([f"{col}=?" for col in col_names])
+                    set_clause = ", ".join([f'"{col}"=?' for col in col_names])
                     values = list(new_data[1:]) + [record_id]
-                    sql = f"UPDATE {table} SET {set_clause} WHERE id=?"
+                    sql = f'UPDATE "{table}" SET {set_clause} WHERE id=?'
                     self.cursor.execute(sql, values)
                     self.undo_stack.append(operation)
                 else:
