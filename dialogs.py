@@ -98,7 +98,6 @@ class TutorialDialog(QDialog):
                     "• Una volta selezionata una tabella, i dati vengono visualizzati nella griglia centrale",
                     "• La colonna ID è nascosta ma viene usata internamente",
                     "• Doppio clic su una cella per aprire l'editor dedicato e modificare il valore",
-                    "• Premi Invio per salvare le modifiche",
                     "• La ricerca in alto a destra consente di filtrare i dati"
                 ]
             },
@@ -123,9 +122,10 @@ class TutorialDialog(QDialog):
             {
                 "title": "Scorciatoie da Tastiera",
                 "content": [
+                    "• Invio: Salva la modifica nella cella o nel campo",
+                    "• Shift+Invio: Vai a capo nelle caselle di testo multi-riga",
                     "• Ctrl+Z: Annulla l'ultima operazione (max 3)",
                     "• Ctrl+Shift+Z: Ripristina l'operazione annullata",
-                    "• Invio: Salva la modifica nella cella o nel campo data",
                     "• Doppio clic: Apre l'editor per celle o rinomina colonne"
                 ]
             },
@@ -136,13 +136,23 @@ class TutorialDialog(QDialog):
                     "• Supporta: inserimento, modifica ed eliminazione record",
                     "• Ctrl+Z annulla l'ultima operazione",
                     "• Ctrl+Shift+Z ripristina l'operazione annullata",
-                    "• Il feedback appare nella barra di stato (undo/redo)"
+                    "• Il feedback appare nella barra di stato"
                 ]
             },
             {
-                "title": "Backup",
+                "title": "Sicurezza",
                 "content": [
+                    "• Il database è protetto con crittografia AES-128",
+                    "• Cambia Password: Modifica la password di accesso all'applicazione",
                     "• Backup: Crea una copia di sicurezza del database"
+                ]
+            },
+            {
+                "title": "Aggiornamenti",
+                "content": [
+                    "• L'applicazione verifica automaticamente la presenza di aggiornamenti all'avvio",
+                    "• Se disponibile una nuova versione, verrà proposto il download e l'installazione",
+                    "• Gli aggiornamenti preservano tutti i dati esistenti"
                 ]
             },
             {

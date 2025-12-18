@@ -20,7 +20,7 @@ GITHUB_API_URL = f"https://api.github.com/repos/{GITHUB_OWNER}/{GITHUB_REPO}/rel
 INSTALLER_NAME = "DatabasePro_Setup.exe"
 
 # Versione corrente dell'applicazione (da aggiornare ad ogni release)
-CURRENT_VERSION = "2.1.2"
+CURRENT_VERSION = "2.1.3"
 
 
 def get_current_version() -> str:
