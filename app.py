@@ -1,13 +1,15 @@
 import os
+import sys
 import datetime
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
-    QMessageBox, QApplication, QDialog, QLabel, QProgressBar
+    QMessageBox, QApplication, QDialog, QLabel, QProgressBar, QPushButton
 )
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QThread, pyqtSignal
 from PyQt6.QtGui import QIcon
 
 from database import DatabaseManager
+from updater import UpdateChecker, CURRENT_VERSION, check_for_updates, download_update, install_update
 from config import StyleManager, ConfigManager
 from ui_components import NavBar, SideBar, MainArea
 from dialogs import (
@@ -15,6 +17,214 @@ from dialogs import (
     PasswordDialog, ChangePasswordDialog
 )
 from file_utils import get_files_dir
+
+
+class UpdateWorker(QThread):
+    """Worker thread per controllo e download aggiornamenti"""
+    update_available = pyqtSignal(dict)
+    no_update = pyqtSignal()
+    download_progress = pyqtSignal(int, int)
+    download_complete = pyqtSignal(str)
+    error = pyqtSignal(str)
+    
+    def __init__(self, action="check", download_url=None):
+        super().__init__()
+        self.action = action
+        self.download_url = download_url
+    
+    def run(self):
+        try:
+            if self.action == "check":
+                update_info = check_for_updates()
+                if update_info:
+                    self.update_available.emit(update_info)
+                else:
+                    self.no_update.emit()
+            elif self.action == "download" and self.download_url:
+                def progress_callback(downloaded, total):
+                    self.download_progress.emit(downloaded, total)
+                
+                path = download_update(self.download_url, progress_callback)
+                if path:
+                    self.download_complete.emit(path)
+                else:
+                    self.error.emit("Errore durante il download dell'aggiornamento")
+        except Exception as e:
+            self.error.emit(str(e))
+
+
+class UpdateDialog(QDialog):
+    """Dialogo per mostrare aggiornamenti disponibili e gestire il download"""
+    
+    def __init__(self, parent, update_info: dict):
+        super().__init__(parent)
+        self.update_info = update_info
+        self.download_path = None
+        self.worker = None
+        
+        self.setWindowTitle("Aggiornamento Disponibile")
+        self.setFixedSize(450, 300)
+        self.setModal(True)
+        
+        self.init_ui()
+    
+    def init_ui(self):
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(15)
+        
+        # Icona e titolo
+        title = QLabel("🔄 Nuova versione disponibile!")
+        title.setStyleSheet("font-size: 18px; font-weight: bold; color: #3b82f6;")
+        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(title)
+        
+        # Informazioni versione
+        version_info = QLabel(
+            f"Versione attuale: {CURRENT_VERSION}\n"
+            f"Nuova versione: {self.update_info.get('version', 'N/A')}"
+        )
+        version_info.setStyleSheet("font-size: 12px; color: #ffffff;")
+        version_info.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(version_info)
+        
+        # Note di rilascio (se presenti)
+        notes = self.update_info.get('release_notes', '')
+        if notes:
+            notes_label = QLabel("Note di rilascio:")
+            notes_label.setStyleSheet("font-size: 11px; color: #aaaaaa; margin-top: 10px;")
+            layout.addWidget(notes_label)
+            
+            notes_text = QLabel(notes[:200] + "..." if len(notes) > 200 else notes)
+            notes_text.setWordWrap(True)
+            notes_text.setStyleSheet("font-size: 10px; color: #cccccc; padding: 5px; background-color: rgba(30, 30, 50, 0.5); border-radius: 4px;")
+            layout.addWidget(notes_text)
+        
+        layout.addStretch()
+        
+        # Barra di progresso (nascosta inizialmente)
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setFixedHeight(20)
+        self.progress_bar.setTextVisible(True)
+        self.progress_bar.setFormat("%p% - Scaricamento in corso...")
+        self.progress_bar.setStyleSheet("""
+            QProgressBar {
+                background-color: rgba(30, 30, 50, 0.5);
+                border: 1px solid rgba(59, 130, 241, 0.3);
+                border-radius: 4px;
+                text-align: center;
+                color: white;
+            }
+            QProgressBar::chunk {
+                background-color: #3b82f6;
+                border-radius: 3px;
+            }
+        """)
+        self.progress_bar.hide()
+        layout.addWidget(self.progress_bar)
+        
+        # Status label
+        self.status_label = QLabel("")
+        self.status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.status_label.setStyleSheet("font-size: 11px; color: #aaaaaa;")
+        layout.addWidget(self.status_label)
+        
+        # Pulsanti
+        btn_layout = QHBoxLayout()
+        
+        self.btn_later = QPushButton("Più tardi")
+        self.btn_later.setStyleSheet("""
+            QPushButton {
+                background-color: rgba(100, 100, 100, 0.5);
+                color: white;
+                border: 1px solid #666;
+                border-radius: 6px;
+                padding: 10px 20px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: rgba(120, 120, 120, 0.7);
+            }
+        """)
+        self.btn_later.clicked.connect(self.reject)
+        btn_layout.addWidget(self.btn_later)
+        
+        self.btn_update = QPushButton("Aggiorna ora")
+        self.btn_update.setStyleSheet("""
+            QPushButton {
+                background-color: #3b82f6;
+                color: white;
+                border: none;
+                border-radius: 6px;
+                padding: 10px 20px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #2563eb;
+            }
+        """)
+        self.btn_update.clicked.connect(self.start_download)
+        btn_layout.addWidget(self.btn_update)
+        
+        layout.addLayout(btn_layout)
+        
+        # Stile del dialogo
+        self.setStyleSheet("""
+            UpdateDialog {
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #1e3a5f, stop:1 #000000);
+            }
+        """)
+    
+    def start_download(self):
+        """Avvia il download dell'aggiornamento"""
+        self.btn_update.setEnabled(False)
+        self.btn_later.setEnabled(False)
+        self.progress_bar.show()
+        self.progress_bar.setValue(0)
+        self.status_label.setText("Scaricamento in corso...")
+        
+        # Avvia il worker per il download
+        self.worker = UpdateWorker("download", self.update_info['download_url'])
+        self.worker.download_progress.connect(self.on_download_progress)
+        self.worker.download_complete.connect(self.on_download_complete)
+        self.worker.error.connect(self.on_error)
+        self.worker.start()
+    
+    def on_download_progress(self, downloaded, total):
+        """Aggiorna la barra di progresso"""
+        if total > 0:
+            percent = int((downloaded / total) * 100)
+            self.progress_bar.setValue(percent)
+            mb_downloaded = downloaded / (1024 * 1024)
+            mb_total = total / (1024 * 1024)
+            self.progress_bar.setFormat(f"{percent}% - {mb_downloaded:.1f}/{mb_total:.1f} MB")
+    
+    def on_download_complete(self, path):
+        """Download completato, avvia l'installazione"""
+        self.download_path = path
+        self.status_label.setText("Download completato! Avvio installazione...")
+        self.progress_bar.setValue(100)
+        QApplication.processEvents()
+        
+        # Avvia l'installer
+        if install_update(path):
+            self.status_label.setText("Installer avviato. L'applicazione verrà chiusa...")
+            QApplication.processEvents()
+            # Chiudi l'applicazione per permettere l'aggiornamento
+            import time
+            time.sleep(1)
+            QApplication.quit()
+        else:
+            self.on_error("Impossibile avviare l'installer")
+    
+    def on_error(self, error_msg):
+        """Gestisce gli errori"""
+        self.status_label.setText(f"Errore: {error_msg}")
+        self.status_label.setStyleSheet("font-size: 11px; color: #ef4444;")
+        self.btn_later.setEnabled(True)
+        self.btn_update.setEnabled(True)
+        self.progress_bar.hide()
 
 
 class SplashScreen(QWidget):
@@ -27,10 +237,12 @@ class SplashScreen(QWidget):
         self.setFixedSize(400, 250)
         
         # Centra la finestra sullo schermo
-        screen = QApplication.primaryScreen().geometry()
-        x = (screen.width() - self.width()) // 2
-        y = (screen.height() - self.height()) // 2
-        self.move(x, y)
+        primary_screen = QApplication.primaryScreen()
+        if primary_screen:
+            screen = primary_screen.geometry()
+            x = (screen.width() - self.width()) // 2
+            y = (screen.height() - self.height()) // 2
+            self.move(x, y)
         
         self.init_ui()
     
@@ -49,8 +261,8 @@ class SplashScreen(QWidget):
         """)
         layout.addWidget(title)
         
-        # Sottotitolo
-        subtitle = QLabel("Gestione Database Avanzata")
+        # Sottotitolo con versione
+        subtitle = QLabel(f"Gestione Database Avanzata - v{CURRENT_VERSION}")
         subtitle.setAlignment(Qt.AlignmentFlag.AlignCenter)
         subtitle.setStyleSheet("font-size: 12px; color: #888888;")
         layout.addWidget(subtitle)
@@ -150,7 +362,7 @@ class ModernDBApp(QMainWindow):
         self.style_manager = StyleManager()
         
         # Default to the dark theme
-        theme = self.config_manager.get("theme", "Elegant Dark")
+        theme: str = self.config_manager.get("theme", "Elegant Dark") or "Elegant Dark"
         self.style_manager.set_theme(theme)
         # Apply an appropriate palette for the selected theme
         try:
@@ -171,6 +383,12 @@ class ModernDBApp(QMainWindow):
         
         self.apply_stylesheet()
         self.setup_shortcuts()
+    
+    def _show_status(self, message: str):
+        """Helper per mostrare messaggi nella status bar"""
+        status_bar = self.statusBar()
+        if status_bar:
+            status_bar.showMessage(message)
     
     def setup_shortcuts(self):
         """Configura le scorciatoie da tastiera"""
@@ -228,7 +446,7 @@ class ModernDBApp(QMainWindow):
         except Exception:
             pass
         
-        self.statusBar().showMessage("Pronto")
+        self._show_status("Pronto")
         
         central_widget.setLayout(main_layout)
         self.setCentralWidget(central_widget)
@@ -275,7 +493,7 @@ class ModernDBApp(QMainWindow):
             return
 
         app = QApplication.instance()
-        if app:
+        if app and isinstance(app, QApplication):
             app.setPalette(p)
     
     def show_tutorial(self):
@@ -288,13 +506,13 @@ class ModernDBApp(QMainWindow):
     
     def load_table(self, table_name: str):
         self.main_area.load_table(table_name)
-        self.statusBar().showMessage(f"Tabella: {table_name}")
+        self._show_status(f"Tabella: {table_name}")
     
     def show_new_table_dialog(self):
         dialog = NewTableDialog(self, self.db_manager, self.style_manager)
         if dialog.exec():
             self.sidebar.load_tables()
-            self.statusBar().showMessage("Tabella creata con successo")
+            self._show_status("Tabella creata con successo")
     
     def delete_table(self):
         table = self.sidebar.get_selected_table()
@@ -344,7 +562,7 @@ class ModernDBApp(QMainWindow):
                 self.main_area.table_widget.setRowCount(0)
                 self.main_area.table_widget.setColumnCount(0)
                 self.main_area.title_label.setText("Seleziona una tabella")
-                self.statusBar().showMessage("Tabella eliminata")
+                self._show_status("Tabella eliminata")
     
     def show_add_record_dialog(self):
         if not self.main_area.current_table:
@@ -352,7 +570,7 @@ class ModernDBApp(QMainWindow):
         dialog = RecordDialog(self, self.db_manager, self.style_manager, self.main_area.current_table)
         if dialog.exec():
             self.main_area.refresh_table_data()
-            self.statusBar().showMessage("Record aggiunto")
+            self._show_status("Record aggiunto")
     
     def show_edit_record_dialog(self):
         if not self.main_area.current_table:
@@ -364,8 +582,13 @@ class ModernDBApp(QMainWindow):
         
         row = selected_rows[0].row()
         from PyQt6.QtCore import Qt
-        record_id = self.main_area.table_widget.item(row, 0).data(Qt.ItemDataRole.UserRole)
+        item = self.main_area.table_widget.item(row, 0)
+        if not item:
+            return
+        record_id = item.data(Qt.ItemDataRole.UserRole)
         
+        if not self.main_area.current_table:
+            return
         columns = self.db_manager.get_columns(self.main_area.current_table)
         records = self.db_manager.get_records(self.main_area.current_table, "id=?", (record_id,))
         
@@ -374,7 +597,7 @@ class ModernDBApp(QMainWindow):
                                 self.main_area.current_table, records[0])
             if dialog.exec():
                 self.main_area.refresh_table_data()
-                self.statusBar().showMessage("Record aggiornato")
+                self._show_status("Record aggiornato")
     
     def delete_record(self):
         selected_rows = self.main_area.table_widget.selectedIndexes()
@@ -386,17 +609,24 @@ class ModernDBApp(QMainWindow):
         if reply == QMessageBox.StandardButton.Yes:
             row = selected_rows[0].row()
             from PyQt6.QtCore import Qt
-            record_id = self.main_area.table_widget.item(row, 0).data(Qt.ItemDataRole.UserRole)
+            item = self.main_area.table_widget.item(row, 0)
+            if not item:
+                return
+            record_id = item.data(Qt.ItemDataRole.UserRole)
+            
+            current_table = self.main_area.current_table
+            if not current_table:
+                return
 
             # Before deleting the DB row, remove any copied files for FILE columns
             try:
                 from file_utils import parse_multi_file_value
-                old_record = self.db_manager.get_records(self.main_area.current_table, "id=?", (record_id,))
+                old_record = self.db_manager.get_records(current_table, "id=?", (record_id,))
                 if old_record:
-                    cols = self.db_manager.get_columns(self.main_area.current_table)
+                    cols = self.db_manager.get_columns(current_table)
                     for idx, col in enumerate(cols):
                         col_name = col[1]
-                        spec = self.db_manager.get_special_type(self.main_area.current_table, col_name)
+                        spec = self.db_manager.get_special_type(current_table, col_name)
                         if spec and spec[0] == 'FILE':
                             db_value = old_record[0][idx]
                             if db_value:
@@ -418,9 +648,9 @@ class ModernDBApp(QMainWindow):
             except Exception:
                 pass
 
-            if self.db_manager.delete_record(self.main_area.current_table, record_id):
+            if current_table and self.db_manager.delete_record(current_table, record_id):
                 self.main_area.refresh_table_data()
-                self.statusBar().showMessage("Record eliminato")
+                self._show_status("Record eliminato")
     
     def search_records(self):
         if not self.main_area.current_table:
@@ -455,7 +685,7 @@ class ModernDBApp(QMainWindow):
         dialog = AddColumnDialog(self, self.db_manager, self.style_manager, self.main_area.current_table)
         if dialog.exec():
             self.main_area.refresh_table_data()
-            self.statusBar().showMessage("Colonna aggiunta")
+            self._show_status("Colonna aggiunta")
     
     def backup_database(self):
         ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -464,45 +694,46 @@ class ModernDBApp(QMainWindow):
         
         if self.db_manager.backup_db(backup_path):
             QMessageBox.information(self, "Backup", f"Database sottoposto a backup come: {backup_filename}")
-            self.statusBar().showMessage("Backup completato")
+            self._show_status("Backup completato")
         else:
             QMessageBox.warning(self, "Errore Backup", "Errore nel backup del database")
     
     def perform_undo(self):
         """Esegue l'operazione di undo"""
         if not self.db_manager.can_undo():
-            self.statusBar().showMessage("Nessuna operazione da annullare")
+            self._show_status("Nessuna operazione da annullare")
             return
         
         success, message = self.db_manager.undo()
         if success:
             self.main_area.refresh_table_data()
-            self.statusBar().showMessage(message)
+            self._show_status(message)
         else:
-            self.statusBar().showMessage(message)
+            self._show_status(message)
     
     def perform_redo(self):
         """Esegue l'operazione di redo"""
         if not self.db_manager.can_redo():
-            self.statusBar().showMessage("Nessuna operazione da ripristinare")
+            self._show_status("Nessuna operazione da ripristinare")
             return
         
         success, message = self.db_manager.redo()
         if success:
             self.main_area.refresh_table_data()
-            self.statusBar().showMessage(message)
+            self._show_status(message)
         else:
-            self.statusBar().showMessage(message)
+            self._show_status(message)
 
-    def closeEvent(self, event):
+    def closeEvent(self, a0):
         """Ensure DB is committed/encrypted on application close."""
         try:
             if hasattr(self, 'db_manager') and self.db_manager:
                 try:
                     # try to commit any pending transactions
-                    if getattr(self.db_manager, 'conn', None):
+                    conn = getattr(self.db_manager, 'conn', None)
+                    if conn:
                         try:
-                            self.db_manager.conn.commit()
+                            conn.commit()
                         except Exception:
                             pass
                 except Exception:
@@ -517,9 +748,10 @@ class ModernDBApp(QMainWindow):
 
         try:
             # allow normal close to proceed
-            super().closeEvent(event)
+            super().closeEvent(a0)
         except Exception:
-            event.accept()
+            if a0:
+                a0.accept()
 
 
 if __name__ == "__main__":
@@ -719,22 +951,37 @@ if __name__ == "__main__":
     import time
     
     # Step 1: Inizializzazione
-    splash.set_progress(10, "Inizializzazione ambiente...")
+    splash.set_progress(5, "Inizializzazione ambiente...")
+    time.sleep(0.2)
+    
+    # Step 2: Controllo aggiornamenti
+    splash.set_progress(15, "Controllo aggiornamenti...")
+    QApplication.processEvents()
+    update_info = None
+    try:
+        update_info = check_for_updates()
+        if update_info:
+            splash.set_progress(20, f"Nuova versione disponibile: {update_info.get('version', '')}")
+        else:
+            splash.set_progress(20, "Applicazione aggiornata")
+    except Exception as e:
+        print(f"[Updater] Errore controllo aggiornamenti: {e}")
+        splash.set_progress(20, "Controllo aggiornamenti fallito")
     time.sleep(0.3)
     
-    # Step 2: Caricamento moduli
-    splash.set_progress(25, "Caricamento moduli...")
+    # Step 3: Caricamento moduli
+    splash.set_progress(35, "Caricamento moduli...")
     import auth as auth_mod
     import sys as _sys
     time.sleep(0.2)
     
-    # Step 3: Configurazione percorsi
-    splash.set_progress(40, "Configurazione percorsi dati...")
+    # Step 4: Configurazione percorsi
+    splash.set_progress(50, "Configurazione percorsi dati...")
     app_path = os.path.dirname(os.path.abspath(__file__))
     time.sleep(0.2)
     
-    # Step 4: Preparazione autenticazione
-    splash.set_progress(60, "Preparazione autenticazione...")
+    # Step 5: Preparazione autenticazione
+    splash.set_progress(70, "Preparazione autenticazione...")
     if getattr(_sys, 'frozen', False):
         try:
             from file_utils import get_files_dir as _get_files_dir
@@ -750,16 +997,33 @@ if __name__ == "__main__":
         auth_mod.ensure_password_file(auth_path, default_password='Admin')
     time.sleep(0.2)
     
-    # Step 5: Caricamento database
-    splash.set_progress(80, "Caricamento database...")
+    # Step 6: Caricamento database
+    splash.set_progress(90, "Caricamento database...")
     time.sleep(0.3)
     
-    # Step 6: Completamento
+    # Step 7: Completamento
     splash.set_progress(100, "Pronto!")
     time.sleep(0.2)
     
-    # Chiudi splash e mostra password dialog
+    # Chiudi splash
     splash.close()
+    
+    # Se c'è un aggiornamento disponibile, mostra il dialogo
+    if update_info:
+        update_dialog = UpdateDialog(None, update_info)
+        # Applica lo stile al dialogo
+        update_dialog.setStyleSheet("""
+            QDialog {
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #1e3a5f, stop:1 #000000);
+            }
+            QLabel {
+                color: #ffffff;
+            }
+        """)
+        # Se l'utente sceglie di aggiornare, il dialogo chiuderà l'app
+        # Se sceglie "più tardi", continua normalmente
+        update_dialog.exec()
 
     # Authentication setup
     try:
@@ -787,3 +1051,4 @@ if __name__ == "__main__":
     window.show()
     
     sys.exit(app.exec())
+
