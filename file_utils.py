@@ -29,11 +29,10 @@ def _load_legacy_key() -> bytes:
 
 def _get_data_dir(app_name: str = "DatabasePro") -> str:
     """Return the data directory (parent of files dir) for storing keys and config."""
+    # Prima prova: ProgramData (ideale per applicazioni installate)
     try:
-        # Use ProgramData for system-wide application data
         program_data = os.environ.get('PROGRAMDATA', 'C:\\ProgramData')
         path = os.path.join(program_data, app_name)
-
         os.makedirs(path, exist_ok=True)
         
         # Hide the directory for security
@@ -46,7 +45,25 @@ def _get_data_dir(app_name: str = "DatabasePro") -> str:
         
         return path
     except Exception:
-        # fallback to current working directory
+        pass
+    
+    # Seconda prova: LocalAppData (per utente corrente)
+    try:
+        local_app_data = os.environ.get('LOCALAPPDATA', os.path.expanduser('~'))
+        path = os.path.join(local_app_data, app_name)
+        os.makedirs(path, exist_ok=True)
+        return path
+    except Exception:
+        pass
+    
+    # Ultima risorsa: directory home dell'utente
+    try:
+        home = os.path.expanduser('~')
+        path = os.path.join(home, f'.{app_name}')
+        os.makedirs(path, exist_ok=True)
+        return path
+    except Exception:
+        # fallback finale: current working directory
         return os.getcwd()
 
 
