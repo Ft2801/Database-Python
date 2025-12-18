@@ -2,7 +2,7 @@ import os
 import datetime
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
-    QMessageBox, QApplication, QDialog
+    QMessageBox, QApplication, QDialog, QLabel, QProgressBar
 )
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QIcon
@@ -15,6 +15,86 @@ from dialogs import (
     PasswordDialog, ChangePasswordDialog
 )
 from file_utils import get_files_dir
+
+
+class SplashScreen(QWidget):
+    """Schermata di avvio con barra di caricamento"""
+    
+    def __init__(self):
+        super().__init__()
+        self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
+        self.setFixedSize(400, 250)
+        
+        # Centra la finestra sullo schermo
+        screen = QApplication.primaryScreen().geometry()
+        x = (screen.width() - self.width()) // 2
+        y = (screen.height() - self.height()) // 2
+        self.move(x, y)
+        
+        self.init_ui()
+    
+    def init_ui(self):
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(30, 30, 30, 30)
+        layout.setSpacing(15)
+        
+        # Logo/Titolo
+        title = QLabel("DatabasePro")
+        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        title.setStyleSheet("""
+            font-size: 28px;
+            font-weight: bold;
+            color: #ffffff;
+        """)
+        layout.addWidget(title)
+        
+        # Sottotitolo
+        subtitle = QLabel("Gestione Database Avanzata")
+        subtitle.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        subtitle.setStyleSheet("font-size: 12px; color: #888888;")
+        layout.addWidget(subtitle)
+        
+        layout.addStretch()
+        
+        # Barra di avanzamento
+        self.progress = QProgressBar()
+        self.progress.setFixedHeight(8)
+        self.progress.setTextVisible(False)
+        self.progress.setStyleSheet("""
+            QProgressBar {
+                background-color: rgba(30, 30, 50, 0.5);
+                border: 1px solid rgba(59, 130, 241, 0.3);
+                border-radius: 4px;
+            }
+            QProgressBar::chunk {
+                background-color: #3b82f6;
+                border-radius: 3px;
+            }
+        """)
+        layout.addWidget(self.progress)
+        
+        # Stato caricamento
+        self.status_label = QLabel("Inizializzazione...")
+        self.status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.status_label.setStyleSheet("font-size: 11px; color: #aaaaaa;")
+        layout.addWidget(self.status_label)
+        
+        # Stile del widget (gradiente come l'app)
+        self.setStyleSheet("""
+            SplashScreen {
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #1e3a5f, stop:1 #000000);
+                border: 1px solid rgba(59, 130, 241, 0.5);
+                border-radius: 12px;
+            }
+        """)
+    
+    def set_progress(self, value: int, status: str):
+        """Aggiorna la barra e il testo di stato"""
+        self.progress.setValue(value)
+        self.status_label.setText(status)
+        QApplication.processEvents()
 
 
 def get_app_path():
@@ -39,19 +119,30 @@ class ModernDBApp(QMainWindow):
         # place database, auth and key in a persistent AppData location so:
         # 1. User can delete/replace EXE without losing data
         # 2. Database persists across app updates
-        try:
-            import sys as _sys
-            if getattr(_sys, 'frozen', False):
-                data_dir = os.path.dirname(get_files_dir())
-            else:
-                data_dir = self.app_path
-        except Exception:
+        import sys as _sys
+        if getattr(_sys, 'frozen', False):
+            # Build EXE: usa sempre ProgramData per persistenza dei dati
+            program_data = os.environ.get('PROGRAMDATA', 'C:\\ProgramData')
+            data_dir = os.path.join(program_data, 'DatabasePro')
+            try:
+                os.makedirs(data_dir, exist_ok=True)
+            except Exception:
+                # Se non riesce a creare in ProgramData, usa AppData locale
+                local_app_data = os.environ.get('LOCALAPPDATA', os.path.expanduser('~'))
+                data_dir = os.path.join(local_app_data, 'DatabasePro')
+                os.makedirs(data_dir, exist_ok=True)
+        else:
+            # Sviluppo: usa la directory dell'app
             data_dir = self.app_path
 
         # Database, auth, and key are all in the persistent data directory
         self.db_path = os.path.join(data_dir, DB_NAME)
         self.auth_path = os.path.join(data_dir, 'auth.json')
         key_path = os.path.join(data_dir, 'db_key.key')
+        
+        # Debug: stampa il percorso per verifica (solo in frozen mode)
+        if getattr(_sys, 'frozen', False):
+            print(f"[DatabasePro] Data directory: {data_dir}")
 
         # Ensure an application-local key file is used for DB encryption when available
         self.db_manager = DatabaseManager(self.db_path, key_path=key_path)
@@ -249,8 +340,10 @@ class ModernDBApp(QMainWindow):
             
             if self.db_manager.drop_table(table):
                 self.sidebar.load_tables()
+                self.main_area.current_table = None
                 self.main_area.table_widget.setRowCount(0)
-                self.main_area.title_label.setText("Seleziona una tabella per visualizzare i dati")
+                self.main_area.table_widget.setColumnCount(0)
+                self.main_area.title_label.setText("Seleziona una tabella")
                 self.statusBar().showMessage("Tabella eliminata")
     
     def show_add_record_dialog(self):
@@ -618,30 +711,58 @@ if __name__ == "__main__":
         }
     """)
 
-    # Authentication setup
-    try:
-        import auth as auth_mod
-        import sys as _sys
-        app_path = os.path.dirname(os.path.abspath(__file__))
-        # If running as a packaged executable, force the auth file to the default
-        # password 'Admin' in a persistent AppData location so the EXE uses the
-        # default credentials rather than any developer-updated auth file.
-        if getattr(_sys, 'frozen', False):
-            try:
-                from file_utils import get_files_dir as _get_files_dir
-                _data_dir = os.path.dirname(_get_files_dir())
-                os.makedirs(_data_dir, exist_ok=True)
-                auth_path = os.path.join(_data_dir, 'auth.json')
-                # Only create auth file if it doesn't exist - preserve user password changes
-                auth_mod.ensure_password_file(auth_path, default_password='Admin')
-            except Exception:
-                # Final fallback to local path
-                auth_path = os.path.join(app_path, 'auth.json')
-                auth_mod.ensure_password_file(auth_path, default_password='Admin')
-        else:
+    # Mostra splash screen
+    splash = SplashScreen()
+    splash.show()
+    QApplication.processEvents()
+    
+    import time
+    
+    # Step 1: Inizializzazione
+    splash.set_progress(10, "Inizializzazione ambiente...")
+    time.sleep(0.3)
+    
+    # Step 2: Caricamento moduli
+    splash.set_progress(25, "Caricamento moduli...")
+    import auth as auth_mod
+    import sys as _sys
+    time.sleep(0.2)
+    
+    # Step 3: Configurazione percorsi
+    splash.set_progress(40, "Configurazione percorsi dati...")
+    app_path = os.path.dirname(os.path.abspath(__file__))
+    time.sleep(0.2)
+    
+    # Step 4: Preparazione autenticazione
+    splash.set_progress(60, "Preparazione autenticazione...")
+    if getattr(_sys, 'frozen', False):
+        try:
+            from file_utils import get_files_dir as _get_files_dir
+            _data_dir = os.path.dirname(_get_files_dir())
+            os.makedirs(_data_dir, exist_ok=True)
+            auth_path = os.path.join(_data_dir, 'auth.json')
+            auth_mod.ensure_password_file(auth_path, default_password='Admin')
+        except Exception:
             auth_path = os.path.join(app_path, 'auth.json')
             auth_mod.ensure_password_file(auth_path, default_password='Admin')
+    else:
+        auth_path = os.path.join(app_path, 'auth.json')
+        auth_mod.ensure_password_file(auth_path, default_password='Admin')
+    time.sleep(0.2)
+    
+    # Step 5: Caricamento database
+    splash.set_progress(80, "Caricamento database...")
+    time.sleep(0.3)
+    
+    # Step 6: Completamento
+    splash.set_progress(100, "Pronto!")
+    time.sleep(0.2)
+    
+    # Chiudi splash e mostra password dialog
+    splash.close()
 
+    # Authentication setup
+    try:
         pwd_dialog = PasswordDialog(None, auth_path)
         # If the user cancels or fails to authenticate, exit
         if pwd_dialog.exec() != QDialog.DialogCode.Accepted:
