@@ -20,7 +20,7 @@ GITHUB_API_URL = f"https://api.github.com/repos/{GITHUB_OWNER}/{GITHUB_REPO}/rel
 INSTALLER_NAME = "DatabasePro_Setup.exe"
 
 # Versione corrente dell'applicazione (da aggiornare ad ogni release)
-CURRENT_VERSION = "2.1.4"
+CURRENT_VERSION = "2.1.6"
 
 
 def get_current_version() -> str:
@@ -145,8 +145,21 @@ def download_update(download_url: str, progress_callback: Optional[Callable[[int
             total_size = int(response.headers.get('Content-Length', 0))
             
             # Crea un file temporaneo per il download
+            # Usiamo un nome che include la versione per evitare conflitti con file bloccati
             temp_dir = tempfile.gettempdir()
-            temp_path = os.path.join(temp_dir, INSTALLER_NAME)
+            # Rimuoviamo eventuali caratteri non validi dalla versione per il nome file
+            safe_version = download_url.split('/')[-2].replace('.', '_')
+            temp_filename = f"DatabasePro_Setup_{safe_version}.exe"
+            temp_path = os.path.join(temp_dir, temp_filename)
+            
+            # Se il file esiste già, proviamo a rimuoverlo
+            if os.path.exists(temp_path):
+                try:
+                    os.remove(temp_path)
+                except Exception:
+                    # Se non riusciamo a rimuoverlo (magari è in uso), usiamo un nome unico
+                    import time
+                    temp_path = os.path.join(temp_dir, f"DatabasePro_Setup_{int(time.time())}.exe")
             
             # Scarica il file
             downloaded = 0
@@ -163,8 +176,14 @@ def download_update(download_url: str, progress_callback: Optional[Callable[[int
                     
                     if progress_callback:
                         progress_callback(downloaded, total_size)
-        
-        return temp_path
+            
+            # Verifica che il file sia stato scaricato completamente
+            if total_size > 0 and downloaded < total_size:
+                print(f"[Updater] Download incompleto: {downloaded}/{total_size} bytes")
+                return None
+            
+            print(f"[Updater] Download completato: {temp_path} ({downloaded} bytes)")
+            return temp_path
     
     except (URLError, HTTPError, IOError) as e:
         print(f"[Updater] Errore durante il download: {e}")
@@ -174,42 +193,56 @@ def download_update(download_url: str, progress_callback: Optional[Callable[[int
         return None
 
 
-def install_update(installer_path: str) -> bool:
+def install_update(installer_path: str) -> Tuple[bool, str]:
     """
     Esegue l'installer per aggiornare l'applicazione.
-    L'installer dovrebbe chiudere questa applicazione e sostituire l'eseguibile.
-    
-    Args:
-        installer_path: Percorso dell'installer scaricato
     
     Returns:
-        True se l'installer è stato avviato correttamente.
+        (Successo, Messaggio di errore o stato)
     """
     try:
         if not os.path.exists(installer_path):
-            print(f"[Updater] Installer non trovato: {installer_path}")
-            return False
+            return False, f"Installer non trovato: {installer_path}"
         
-        # Avvia l'installer
-        # Usa os.startfile su Windows per gestire correttamente i privilegi admin (UAC)
+        installer_path = os.path.abspath(installer_path)
+        print(f"[Updater] Avvio installer: {installer_path}")
+        
         if sys.platform == 'win32':
             try:
-                os.startfile(installer_path)
+                import ctypes
+                # SW_SHOWNORMAL = 1
+                print(f"[Updater] Tentativo avvio con ShellExecuteW (runas): {installer_path}")
+                result = ctypes.windll.shell32.ShellExecuteW(None, "runas", installer_path, None, None, 1)
+                if result > 32:
+                    print(f"[Updater] ShellExecuteW riuscito (codice: {result})")
+                    return True, "Installer avviato con successo"
+                else:
+                    raise Exception(f"Errore ShellExecuteW: {result}")
             except Exception as e:
-                # Fallback se startfile fallisce
-                subprocess.Popen(
-                    [installer_path],
-                    creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP,
-                    close_fds=True
-                )
+                print(f"[Updater] ShellExecuteW fallito: {e}")
+                try:
+                    os.startfile(installer_path)
+                    print("[Updater] Installer avviato con os.startfile")
+                    return True, "Installer avviato con os.startfile"
+                except Exception as e2:
+                    print(f"[Updater] os.startfile fallito: {e2}")
+                    try:
+                        subprocess.Popen(f'"{installer_path}"', shell=True)
+                        print("[Updater] Installer avviato con subprocess")
+                        return True, "Installer avviato con subprocess"
+                    except Exception as e3:
+                        print(f"[Updater] Tutti i tentativi falliti: {e3}")
+                        return False, f"Tutti i tentativi falliti. Errore finale: {e3}"
         else:
-            subprocess.Popen([installer_path], start_new_session=True)
-        
-        return True
+            try:
+                os.chmod(installer_path, 0o755)
+                subprocess.Popen([installer_path], start_new_session=True)
+                return True, "Installer avviato"
+            except Exception as e:
+                return False, f"Errore avvio Unix: {e}"
     
     except Exception as e:
-        print(f"[Updater] Errore durante l'avvio dell'installer: {e}")
-        return False
+        return False, f"Errore critico: {e}"
 
 
 def check_and_update_async(

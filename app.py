@@ -210,15 +210,17 @@ class UpdateDialog(QDialog):
         QApplication.processEvents()
         
         # Avvia l'installer
-        if install_update(path):
+        success, message = install_update(path)
+        if success:
             self.status_label.setText("Installer avviato. L'applicazione verrà chiusa...")
+            self.status_label.setStyleSheet("font-size: 11px; color: #4ade80;")
             QApplication.processEvents()
             # Chiudi l'applicazione per permettere l'aggiornamento
             import time
-            time.sleep(1)
+            time.sleep(2)
             QApplication.quit()
         else:
-            self.on_error("Impossibile avviare l'installer")
+            self.on_error(f"Impossibile avviare l'installer: {message}")
     
     def on_error(self, error_msg):
         """Gestisce gli errori"""
