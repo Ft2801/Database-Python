@@ -25,6 +25,10 @@ INSTALLER_NAME = "DatabasePro_Setup.exe"
 # Versione corrente dell'applicazione (da aggiornare ad ogni release)
 CURRENT_VERSION = "1.1.0"
 
+# Configurazione per il monitoraggio dell'installer
+INSTALLER_MONITOR_TIMEOUT = 600  # Timeout massimo in secondi per il monitoraggio (10 minuti)
+INSTALLER_CHECK_INTERVAL = 5  # Intervallo in secondi per controllare lo stato del file
+
 
 def find_old_installer_files() -> list:
     """
@@ -71,8 +75,8 @@ def cleanup_old_installers() -> Tuple[int, int]:
             # Verifica se il file è in uso
             if os.path.exists(file_path):
                 try:
-                    # Prova a verificare se il file è accessibile
-                    with open(file_path, 'a'):
+                    # Prova a verificare se il file è accessibile (in lettura, senza modificarlo)
+                    with open(file_path, 'rb'):
                         pass
                     # Se arriviamo qui, possiamo eliminarlo
                     os.remove(file_path)
@@ -158,20 +162,18 @@ def monitor_installer_process(installer_path: str, process_handle=None):
             except Exception as e:
                 print(f"[Updater] Errore nell'uso di psutil: {e}")
                 # Fallback: attendi e controlla periodicamente
-                max_wait_time = 600  # 10 minuti
-                check_interval = 5  # Controlla ogni 5 secondi
                 elapsed = 0
                 
-                while elapsed < max_wait_time:
-                    time.sleep(check_interval)
-                    elapsed += check_interval
+                while elapsed < INSTALLER_MONITOR_TIMEOUT:
+                    time.sleep(INSTALLER_CHECK_INTERVAL)
+                    elapsed += INSTALLER_CHECK_INTERVAL
                     
-                    # Controlla se il file è ancora in uso
+                    # Controlla se il file è ancora in uso (lettura, non modifica)
                     try:
-                        with open(installer_path, 'a'):
-                            # Se riusciamo ad aprirlo, probabilmente non è più in uso
+                        with open(installer_path, 'rb'):
+                            # Se riusciamo ad aprirlo in lettura, probabilmente non è più in uso
                             break
-                    except:
+                    except Exception:
                         continue
         else:
             # Su Unix o senza handle, attendi un po' e prova a eliminare
