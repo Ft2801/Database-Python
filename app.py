@@ -65,6 +65,8 @@ class UpdateDialog(QDialog):
         self.setWindowTitle("Aggiornamento Disponibile")
         self.setFixedSize(450, 300)
         self.setModal(True)
+        # Assicura che il dialogo sia in primo piano durante l'avvio
+        self.setWindowFlags(self.windowFlags() | Qt.WindowType.WindowStaysOnTopHint)
         
         self.init_ui()
     
@@ -952,7 +954,7 @@ if __name__ == "__main__":
     
     # Step 1: Inizializzazione
     splash.set_progress(5, "Inizializzazione ambiente...")
-    time.sleep(0.2)
+    time.sleep(0.1)
     
     # Step 2: Controllo aggiornamenti
     splash.set_progress(15, "Controllo aggiornamenti...")
@@ -967,18 +969,18 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"[Updater] Errore controllo aggiornamenti: {e}")
         splash.set_progress(20, "Controllo aggiornamenti fallito")
-    time.sleep(0.3)
+    time.sleep(0.1)
     
     # Step 3: Caricamento moduli
     splash.set_progress(35, "Caricamento moduli...")
     import auth as auth_mod
     import sys as _sys
-    time.sleep(0.2)
+    time.sleep(0.1)
     
     # Step 4: Configurazione percorsi
     splash.set_progress(50, "Configurazione percorsi dati...")
     app_path = os.path.dirname(os.path.abspath(__file__))
-    time.sleep(0.2)
+    time.sleep(0.1)
     
     # Step 5: Preparazione autenticazione
     splash.set_progress(70, "Preparazione autenticazione...")
@@ -995,27 +997,29 @@ if __name__ == "__main__":
     else:
         auth_path = os.path.join(app_path, 'auth.json')
         auth_mod.ensure_password_file(auth_path, default_password='Admin')
-    time.sleep(0.2)
+    time.sleep(0.1)
     
     # Step 6: Caricamento database
     splash.set_progress(90, "Caricamento database...")
-    time.sleep(0.3)
+    time.sleep(0.1)
     
     # Step 7: Completamento
     splash.set_progress(100, "Pronto!")
-    time.sleep(0.2)
+    time.sleep(0.1)
     
-    # Chiudi splash
-    splash.close()
-    
-    # Se c'è un aggiornamento disponibile, mostra il dialogo
+    # Se c'è un aggiornamento disponibile, mostra il dialogo prima di chiudere lo splash
+    # per evitare un "buco" visivo tra le due finestre
     if update_info:
+        # Nascondi lo splash invece di chiuderlo subito
+        splash.hide()
+        
         update_dialog = UpdateDialog(None, update_info)
         # Applica lo stile al dialogo
         update_dialog.setStyleSheet("""
             QDialog {
                 background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
                     stop:0 #1e3a5f, stop:1 #000000);
+                border: 1px solid #3b82f6;
             }
             QLabel {
                 color: #ffffff;
@@ -1024,6 +1028,9 @@ if __name__ == "__main__":
         # Se l'utente sceglie di aggiornare, il dialogo chiuderà l'app
         # Se sceglie "più tardi", continua normalmente
         update_dialog.exec()
+        
+    # Chiudi definitivamente lo splash
+    splash.close()
 
     # Authentication setup
     try:

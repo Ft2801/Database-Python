@@ -20,7 +20,7 @@ GITHUB_API_URL = f"https://api.github.com/repos/{GITHUB_OWNER}/{GITHUB_REPO}/rel
 INSTALLER_NAME = "DatabasePro_Setup.exe"
 
 # Versione corrente dell'applicazione (da aggiornare ad ogni release)
-CURRENT_VERSION = "2.1.3"
+CURRENT_VERSION = "2.1.4"
 
 
 def get_current_version() -> str:
@@ -191,15 +191,17 @@ def install_update(installer_path: str) -> bool:
             return False
         
         # Avvia l'installer
-        # Usa subprocess.Popen per avviare il processo e non aspettare che termini
-        # L'installer dovrebbe essere in grado di sostituire l'exe anche se è in esecuzione
+        # Usa os.startfile su Windows per gestire correttamente i privilegi admin (UAC)
         if sys.platform == 'win32':
-            # Su Windows, usa ShellExecute per eseguire con eventuali privilegi admin
-            subprocess.Popen(
-                [installer_path],
-                creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP,
-                close_fds=True
-            )
+            try:
+                os.startfile(installer_path)
+            except Exception as e:
+                # Fallback se startfile fallisce
+                subprocess.Popen(
+                    [installer_path],
+                    creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP,
+                    close_fds=True
+                )
         else:
             subprocess.Popen([installer_path], start_new_session=True)
         
