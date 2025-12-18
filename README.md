@@ -66,7 +66,6 @@ Dalla interfaccia puoi:
 - Creare nuove tabelle con colonne personalizzate
 - Aggiungere, modificare e eliminare record
 - Allegare file ai record
-- Cambiare il tema dell'interfaccia
 - Proteggere il database con una password
 
 ## Sicurezza
