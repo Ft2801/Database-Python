@@ -78,6 +78,14 @@ def build_executable():
         "cryptography.hazmat.primitives.kdf.pbkdf2",
         "cryptography.hazmat.backends",
         "cryptography.hazmat.backends.openssl",
+        # Moduli per l'auto-aggiornamento
+        "updater",
+        "urllib",
+        "urllib.request",
+        "urllib.error",
+        "json",
+        "tempfile",
+        "threading",
     ]
     
     for module in hidden_imports:

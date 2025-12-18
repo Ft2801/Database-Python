@@ -99,7 +99,44 @@ python build_exe.py
 
 L'eseguibile sarà creato nella cartella `dist/`.
 
+Per creare l'installer completo:
+
+```bash
+python build_installer.py
+```
+
 **Nota**: L'eseguibile avrà i propri file di autenticazione e chiave di crittografia, indipendenti da quelli di sviluppo.
+
+## Aggiornamento automatico
+
+L'applicazione include un sistema di aggiornamento automatico:
+
+- **All'avvio**: L'app controlla automaticamente se sono disponibili nuove versioni su GitHub
+- **Download**: Se c'è un aggiornamento, viene proposto il download dell'installer
+- **Installazione**: L'installer viene eseguito automaticamente per aggiornare l'applicazione
+
+### Pubblicare una nuova release
+
+Per pubblicare una nuova versione (richiede [GitHub CLI](https://cli.github.com/)):
+
+```bash
+# Prima crea l'installer
+python build_installer.py
+
+# Poi crea la release (patch = 1.0.0 -> 1.0.1)
+python create_release.py patch
+
+# Oppure per una minor release (1.0.0 -> 1.1.0)
+python create_release.py minor
+
+# Oppure per una major release (1.0.0 -> 2.0.0)
+python create_release.py major
+```
+
+Lo script:
+1. Incrementa automaticamente la versione in `updater.py`
+2. Commit e push delle modifiche
+3. Crea una release su GitHub con l'installer allegato
 
 ## Struttura del progetto
 
@@ -115,7 +152,11 @@ DatabasePro/
 ├── validators.py               # Validatori per input
 ├── access.py                   # Controllo accesso
 ├── file_utils.py               # Utility per file
-├── build_exe.py                # Script di build
+├── updater.py                  # Sistema di auto-aggiornamento
+├── build_exe.py                # Script di build eseguibile
+├── build_installer.py          # Script di build installer
+├── create_release.py           # Script per creare release GitHub
+├── installer_gui.py            # GUI dell'installer
 ├── requirements.txt            # Dipendenze
 ├── logo.png                    # Logo applicazione
 ├── app_config.json.example     # Esempio configurazione (da rinominare)
