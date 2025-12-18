@@ -953,6 +953,18 @@ if __name__ == "__main__":
     splash.set_progress(5, "Inizializzazione ambiente...")
     time.sleep(0.1)
     
+    # Step 1.5: Pulizia vecchi installer
+    splash.set_progress(10, "Pulizia file temporanei...")
+    QApplication.processEvents()
+    try:
+        from updater import cleanup_old_installers
+        deleted, failed = cleanup_old_installers()
+        if deleted > 0:
+            print(f"[App] Puliti {deleted} vecchi file installer")
+    except Exception as e:
+        print(f"[App] Errore durante la pulizia dei vecchi installer: {e}")
+    time.sleep(0.1)
+    
     # Step 2: Controllo aggiornamenti
     splash.set_progress(15, "Controllo aggiornamenti...")
     QApplication.processEvents()
