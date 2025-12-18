@@ -227,12 +227,15 @@ Clicca 'Fine' per chiudere l'installazione.""", justify=tk.LEFT)
         self.back_btn.config(state=tk.NORMAL if index > 0 else tk.DISABLED)
         
         if index == len(self.pages) - 1:
-            self.next_btn.config(text="Fine")
+            # Pagina finale - abilita Fine e nascondi Indietro
+            self.next_btn.config(text="Fine", state=tk.NORMAL)
+            self.back_btn.config(state=tk.DISABLED)
+            self.cancel_btn.config(state=tk.DISABLED)
         elif index == 3:  # Pagina di installazione
             self.next_btn.config(text="Installa", state=tk.NORMAL)
             self.back_btn.config(state=tk.DISABLED)
         else:
-            self.next_btn.config(text="Avanti >")
+            self.next_btn.config(text="Avanti >", state=tk.NORMAL)
     
     def go_back(self):
         if self.current_page > 0:
@@ -378,7 +381,7 @@ Clicca 'Fine' per chiudere l'installazione.""", justify=tk.LEFT)
         return None
     
     def create_shortcut(self, target, shortcut_path):
-        """Crea un collegamento Windows usando PowerShell"""
+        """Crea un collegamento Windows usando PowerShell (nascosto)"""
         try:
             ps_script = f'''
 $WshShell = New-Object -ComObject WScript.Shell
@@ -388,8 +391,18 @@ $Shortcut.WorkingDirectory = "{os.path.dirname(target)}"
 $Shortcut.IconLocation = "{target}"
 $Shortcut.Save()
 '''
-            subprocess.run(['powershell', '-Command', ps_script], 
-                         capture_output=True, timeout=10)
+            # Usa CREATE_NO_WINDOW per nascondere completamente la finestra
+            startupinfo = subprocess.STARTUPINFO()
+            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+            startupinfo.wShowWindow = subprocess.SW_HIDE
+            
+            subprocess.run(
+                ['powershell', '-WindowStyle', 'Hidden', '-Command', ps_script], 
+                capture_output=True, 
+                timeout=10,
+                startupinfo=startupinfo,
+                creationflags=subprocess.CREATE_NO_WINDOW
+            )
         except:
             pass  # Ignora errori nella creazione shortcut
     
