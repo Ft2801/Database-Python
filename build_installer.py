@@ -1,22 +1,37 @@
 """
 Script per creare l'installer di DatabasePro.
 L'installer include l'exe dell'applicazione al suo interno.
-Richiede che build_exe.py sia stato eseguito prima.
+Compila automaticamente l'exe se non esiste.
 """
 import os
 import subprocess
 import sys
 import shutil
-import base64
 
 
-def check_exe_exists():
-    """Verifica che l'exe esista"""
+def build_app_exe():
+    """Compila l'exe dell'applicazione"""
+    print("\n" + "-" * 60)
+    print("Compilazione DatabasePro.exe...")
+    print("-" * 60)
+    
+    # Importa ed esegue la funzione di build
+    from build_exe import build_executable
+    build_executable()
+    
+    # Verifica che sia stato creato
+    exe_path = os.path.join("dist", "DatabasePro.exe")
+    return os.path.exists(exe_path)
+
+
+def ensure_exe_exists():
+    """Verifica che l'exe esista, altrimenti lo compila"""
     exe_path = os.path.join("dist", "DatabasePro.exe")
     if not os.path.exists(exe_path):
-        print("✗ Errore: DatabasePro.exe non trovato in dist/")
-        print("  Esegui prima: python build_exe.py")
-        return False
+        print("⚠ DatabasePro.exe non trovato, lo compilo ora...")
+        if not build_app_exe():
+            print("✗ Errore durante la compilazione dell'exe")
+            return False
     return True
 
 
@@ -27,8 +42,8 @@ def build_installer():
     print("DatabasePro - Build Installer")
     print("=" * 60)
     
-    # Verifica che l'exe esista
-    if not check_exe_exists():
+    # Verifica/compila l'exe
+    if not ensure_exe_exists():
         sys.exit(1)
     
     # Verifica PyInstaller
@@ -40,7 +55,7 @@ def build_installer():
         subprocess.check_call([sys.executable, "-m", "pip", "install", "pyinstaller"])
         print("✓ PyInstaller installato")
     
-    print("✓ DatabasePro.exe trovato")
+    print("✓ DatabasePro.exe pronto")
     
     # Comando per creare l'installer Python
     # Includiamo l'exe come dato aggiuntivo
