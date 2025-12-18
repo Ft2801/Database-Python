@@ -1,9 +1,11 @@
 """
-Script per creare l'eseguibile dell'applicazione Gestione Database usando PyInstaller
+Script per creare l'eseguibile dell'applicazione DatabasePro.
+Usa PyInstaller per creare un singolo file .exe
 """
 import os
 import subprocess
 import sys
+
 
 def build_executable():
     """Crea l'eseguibile dell'applicazione"""
@@ -96,14 +98,16 @@ def build_executable():
         result = subprocess.run(cmd, check=True, capture_output=True, text=True)
         print(result.stdout)
         
+        # Ottieni la dimensione del file
+        exe_path = os.path.join("dist", f"{app_name}.exe")
+        size_mb = os.path.getsize(exe_path) / (1024 * 1024) if os.path.exists(exe_path) else 0
+        
         print("\n" + "=" * 60)
-        print("✓ BUILD COMPLETATO CON SUCCESSO!")
+        print("✓ BUILD COMPLETATO!")
         print("=" * 60)
-        print(f"\nL'eseguibile si trova in: dist\\{app_name}.exe")
-        print("\nFile generati:")
-        print(f"  - dist\\{app_name}.exe (eseguibile)")
-        print(f"  - build\\ (file temporanei)")
-        print(f"  - {app_name}.spec (configurazione)")
+        print(f"\nFile: dist\\{app_name}.exe ({size_mb:.1f} MB)")
+        print("\nPer creare l'installer, esegui:")
+        print("  python build_installer.py")
         
     except subprocess.CalledProcessError as e:
         print("\n" + "=" * 60)
@@ -111,6 +115,7 @@ def build_executable():
         print("=" * 60)
         print(e.stderr)
         sys.exit(1)
+
 
 if __name__ == "__main__":
     build_executable()

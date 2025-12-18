@@ -41,8 +41,6 @@ class CellTextEdit(QPlainTextEdit):
 
 class NavBar(QFrame):
     backup_requested = pyqtSignal()
-    export_requested = pyqtSignal()
-    import_requested = pyqtSignal()
     tutorial_requested = pyqtSignal()
     password_change_requested = pyqtSignal()
     
@@ -68,16 +66,6 @@ class NavBar(QFrame):
         # use default button styling
         backup_btn.clicked.connect(self.backup_requested.emit)
         layout.addWidget(backup_btn)
-        
-        export_btn = QPushButton("Esporta")
-        # use default button styling
-        export_btn.clicked.connect(self.export_requested.emit)
-        layout.addWidget(export_btn)
-        
-        import_btn = QPushButton("Importa")
-        # use default button styling
-        import_btn.clicked.connect(self.import_requested.emit)
-        layout.addWidget(import_btn)
         
         tutorial_btn = QPushButton("Tutorial")
         # use default button styling
@@ -735,7 +723,6 @@ class MainArea(QFrame):
         name_input = QLineEdit()
         name_input.setText(old_name)
         name_input.selectAll()
-        InputValidator.restrict_input(name_input, r'^[a-zA-Z0-9_]*$')
         layout.addWidget(name_input)
         
         error_label = QLabel("")
@@ -760,12 +747,6 @@ class MainArea(QFrame):
             
             if new_name == old_name:
                 dialog.accept()
-                return
-            
-            # Valida il nome (solo caratteri alfanumerici e underscore)
-            import re
-            if not re.match(r'^[a-zA-Z0-9_]+$', new_name):
-                error_label.setText("Solo lettere, numeri e underscore")
                 return
             
             # Verifica che il nome non sia già in uso

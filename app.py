@@ -2,7 +2,7 @@ import os
 import datetime
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
-    QMessageBox, QFileDialog, QApplication, QDialog
+    QMessageBox, QApplication, QDialog
 )
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QIcon
@@ -102,8 +102,6 @@ class ModernDBApp(QMainWindow):
         self.navbar = NavBar(self.style_manager)
         # Theme is now fixed to dark gradient - no theme switching
         self.navbar.backup_requested.connect(self.backup_database)
-        self.navbar.export_requested.connect(self.export_csv)
-        self.navbar.import_requested.connect(self.import_csv)
         self.navbar.tutorial_requested.connect(self.show_tutorial)
         # connect password change request from the navbar
         try:
@@ -341,7 +339,7 @@ class ModernDBApp(QMainWindow):
             return
         
         columns = [col[1] for col in self.db_manager.get_columns(self.main_area.current_table)]
-        where_clause = " OR ".join([f"{col} LIKE ?" for col in columns])
+        where_clause = " OR ".join([f'"{col}" LIKE ?' for col in columns])
         params = tuple([f"%{search_text}%" for _ in columns])
         
         self.main_area.table_widget.setRowCount(0)
@@ -376,39 +374,6 @@ class ModernDBApp(QMainWindow):
             self.statusBar().showMessage("Backup completato")
         else:
             QMessageBox.warning(self, "Errore Backup", "Errore nel backup del database")
-    
-    def export_csv(self):
-        if not self.main_area.current_table:
-            QMessageBox.information(self, "Esporta", "Seleziona una tabella prima.")
-            return
-        
-        file_path, _ = QFileDialog.getSaveFileName(self, "Esporta Tabella come CSV", "", "File CSV (*.csv)")
-        if not file_path:
-            return
-        
-        if self.db_manager.export_csv(self.main_area.current_table, file_path):
-            QMessageBox.information(self, "Esporta", "File CSV creato con successo!")
-            self.statusBar().showMessage("Esportazione completata")
-        else:
-            QMessageBox.warning(self, "Errore Esportazione", "Errore durante l'esportazione CSV")
-    
-    def import_csv(self):
-        if not self.main_area.current_table:
-            QMessageBox.information(self, "Importa", "Seleziona una tabella prima.")
-            return
-        
-        file_path, _ = QFileDialog.getOpenFileName(self, "Importa CSV", "", "File CSV (*.csv)")
-        if not file_path:
-            return
-        
-        success, count = self.db_manager.import_csv(self.main_area.current_table, file_path)
-        
-        if success:
-            self.main_area.refresh_table_data()
-            QMessageBox.information(self, "Importa", f"Importati {count} record!")
-            self.statusBar().showMessage(f"Importazione completata - {count} record aggiunti")
-        else:
-            QMessageBox.warning(self, "Errore Importazione", "Errore durante l'importazione CSV. Controlla i nomi delle colonne.")
     
     def perform_undo(self):
         """Esegue l'operazione di undo"""

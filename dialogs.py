@@ -140,11 +140,9 @@ class TutorialDialog(QDialog):
                 ]
             },
             {
-                "title": "Backup e Importazione",
+                "title": "Backup",
                 "content": [
-                    "• Backup: Crea una copia di sicurezza del database",
-                    "• Esporta: Esporta una tabella in formato CSV",
-                    "• Importa: Importa dati da un file CSV"
+                    "• Backup: Crea una copia di sicurezza del database"
                 ]
             },
             {
@@ -217,7 +215,6 @@ class NewTableDialog(QDialog):
         
         self.name_input = QLineEdit()
         self.name_input.setPlaceholderText("Nome tabella...")
-        InputValidator.restrict_input(self.name_input, r'^[a-zA-Z0-9_]*$')
         layout.addWidget(self.name_input)
         
         columns_label = QLabel("Colonne:")
@@ -240,7 +237,6 @@ class NewTableDialog(QDialog):
         self.col_name_input = QLineEdit()
         self.col_name_input.setPlaceholderText("Nome colonna...")
         self.col_name_input.setMaximumWidth(150)
-        InputValidator.restrict_input(self.col_name_input, r'^[a-zA-Z0-9_]*$')
         input_layout.addWidget(col_name_label)
         input_layout.addWidget(self.col_name_input)
         
@@ -275,7 +271,7 @@ class NewTableDialog(QDialog):
         self.setLayout(layout)
     
     def add_column(self):
-        col_name = self.col_name_input.text().strip().replace(" ", "_")
+        col_name = self.col_name_input.text().strip()
         col_type = self.col_type_combo.currentText()
         
         if not col_name:
@@ -315,7 +311,7 @@ class NewTableDialog(QDialog):
             self.columns_list.addItem(info)
     
     def create_table(self):
-        table_name = self.name_input.text().strip().replace(" ", "_")
+        table_name = self.name_input.text().strip()
         
         if not table_name or not self.columns:
             QMessageBox.warning(self, "Errore", "Nome tabella e almeno una colonna necessari.")
@@ -687,7 +683,6 @@ class AddColumnDialog(QDialog):
         layout.addWidget(QLabel("Nome Colonna:"))
         self.name_input = QLineEdit()
         self.name_input.setPlaceholderText("Nome colonna...")
-        InputValidator.restrict_input(self.name_input, r'^[a-zA-Z0-9_]*$')
         layout.addWidget(self.name_input)
         
         layout.addWidget(QLabel("Tipo:"))
@@ -731,7 +726,7 @@ class AddColumnDialog(QDialog):
             self.relation_frame.hide()
     
     def add_column(self):
-        col_name = self.name_input.text().strip().replace(" ", "_")
+        col_name = self.name_input.text().strip()
         col_type = self.type_combo.currentText()
         
         if not col_name:
