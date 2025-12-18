@@ -1,5 +1,11 @@
 
 
+
+## [2.1.4] - 2025-12-18
+
+### Modifiche
+- Implementazione sistema di avvio automatico installer
+
 ## [2.1.3] - 2025-12-18
 
 ### Modifiche
