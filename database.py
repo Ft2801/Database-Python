@@ -13,6 +13,52 @@ except Exception:
     InvalidToken = Exception
 
 
+def _clear_file_attributes(file_path: str) -> bool:
+    """Remove hidden/system attributes from a file on Windows to allow overwriting."""
+    try:
+        import ctypes
+        from ctypes import wintypes
+        
+        # Define the function properly
+        kernel32 = ctypes.windll.kernel32
+        SetFileAttributesW = kernel32.SetFileAttributesW
+        SetFileAttributesW.argtypes = [wintypes.LPCWSTR, wintypes.DWORD]
+        SetFileAttributesW.restype = wintypes.BOOL
+        
+        FILE_ATTRIBUTE_NORMAL = 0x80
+        result = SetFileAttributesW(file_path, FILE_ATTRIBUTE_NORMAL)
+        return bool(result)
+    except Exception:
+        # Fallback: try using os.chmod
+        try:
+            import stat
+            os.chmod(file_path, stat.S_IRUSR | stat.S_IWUSR | stat.S_IRGRP | stat.S_IROTH)
+            return True
+        except Exception:
+            pass
+    return False
+
+
+def _set_hidden_system_attributes(file_path: str) -> bool:
+    """Set hidden attribute on a file on Windows (without System to avoid permission issues)."""
+    try:
+        import ctypes
+        from ctypes import wintypes
+        
+        kernel32 = ctypes.windll.kernel32
+        SetFileAttributesW = kernel32.SetFileAttributesW
+        SetFileAttributesW.argtypes = [wintypes.LPCWSTR, wintypes.DWORD]
+        SetFileAttributesW.restype = wintypes.BOOL
+        
+        # Solo HIDDEN, non SYSTEM - altrimenti non possiamo sovrascrivere senza admin
+        FILE_ATTRIBUTE_HIDDEN = 0x02
+        result = SetFileAttributesW(file_path, FILE_ATTRIBUTE_HIDDEN)
+        return bool(result)
+    except Exception:
+        pass
+    return False
+
+
 class DatabaseManager:
     def __init__(self, db_path: str, key: bytes = None, key_path: Optional[str] = None):
         """
@@ -90,21 +136,23 @@ class DatabaseManager:
         try:
             if getattr(self, 'conn', None):
                 self.conn.commit()
-                # Force WAL checkpoint
+                # Force WAL checkpoint - use TRUNCATE for more aggressive write
                 try:
-                    self.cursor.execute("PRAGMA wal_checkpoint(PASSIVE)")
+                    self.cursor.execute("PRAGMA wal_checkpoint(TRUNCATE)")
                 except Exception:
                     pass
             
             if self._uses_encryption and self._temp_db_file and os.path.exists(self._temp_db_file):
                 # Rimuovi attributi nascosti/sistema per poter sovrascrivere
                 if os.path.exists(self.encrypted_path):
-                    try:
-                        import ctypes
-                        ctypes.windll.kernel32.SetFileAttributesW(self.encrypted_path, 0x80)  # FILE_ATTRIBUTE_NORMAL
-                    except Exception:
-                        pass
-                self._encrypt_file(self._temp_db_file, self.encrypted_path)
+                    _clear_file_attributes(self.encrypted_path)
+                
+                # Verifica che il file temp esista e non sia vuoto
+                temp_size = os.path.getsize(self._temp_db_file)
+                if temp_size > 0:
+                    self._encrypt_file(self._temp_db_file, self.encrypted_path)
+                    # Nascondi il file crittografato
+                    _set_hidden_system_attributes(self.encrypted_path)
         except Exception as e:
             print(f"Error during sync: {e}")
     
@@ -594,16 +642,17 @@ class DatabaseManager:
                     if os.path.getsize(self._temp_db_file) > 0:
                         # Rimuovi attributi nascosti/sistema dal file .enc per poterlo sovrascrivere
                         if os.path.exists(self.encrypted_path):
-                            try:
-                                import ctypes
-                                ctypes.windll.kernel32.SetFileAttributesW(self.encrypted_path, 0x80)  # FILE_ATTRIBUTE_NORMAL
-                            except Exception:
-                                pass
+                            _clear_file_attributes(self.encrypted_path)
                         self._encrypt_file(self._temp_db_file, self.encrypted_path)
+                        # Nascondi il file crittografato
+                        _set_hidden_system_attributes(self.encrypted_path)
                     else:
                         print("Warning: temp database file is empty, skipping encryption")
                 elif os.path.exists(self.db_path):
+                    if os.path.exists(self.encrypted_path):
+                        _clear_file_attributes(self.encrypted_path)
                     self._encrypt_file(self.db_path, self.encrypted_path)
+                    _set_hidden_system_attributes(self.encrypted_path)
             except Exception as e:
                 print(f"Error encrypting database on close: {e}")
             finally:

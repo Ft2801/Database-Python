@@ -29,25 +29,8 @@ def _load_legacy_key() -> bytes:
 
 def _get_data_dir(app_name: str = "DatabasePro") -> str:
     """Return the data directory (parent of files dir) for storing keys and config."""
-    # Prima prova: ProgramData (ideale per applicazioni installate)
-    try:
-        program_data = os.environ.get('PROGRAMDATA', 'C:\\ProgramData')
-        path = os.path.join(program_data, app_name)
-        os.makedirs(path, exist_ok=True)
-        
-        # Hide the directory for security
-        try:
-            import ctypes
-            FILE_ATTRIBUTE_HIDDEN = 0x02
-            ctypes.windll.kernel32.SetFileAttributesW(path, FILE_ATTRIBUTE_HIDDEN)
-        except Exception:
-            pass
-        
-        return path
-    except Exception:
-        pass
-    
-    # Seconda prova: LocalAppData (per utente corrente)
+    # Usa LocalAppData per evitare problemi di permessi
+    # ProgramData richiede privilegi admin per scrivere file
     try:
         local_app_data = os.environ.get('LOCALAPPDATA', os.path.expanduser('~'))
         path = os.path.join(local_app_data, app_name)
@@ -56,7 +39,7 @@ def _get_data_dir(app_name: str = "DatabasePro") -> str:
     except Exception:
         pass
     
-    # Ultima risorsa: directory home dell'utente
+    # Fallback: directory home dell'utente
     try:
         home = os.path.expanduser('~')
         path = os.path.join(home, f'.{app_name}')

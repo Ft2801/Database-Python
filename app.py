@@ -337,15 +337,15 @@ class ModernDBApp(QMainWindow):
         # 2. Database persists across app updates
         import sys as _sys
         if getattr(_sys, 'frozen', False):
-            # Build EXE: usa sempre ProgramData per persistenza dei dati
-            program_data = os.environ.get('PROGRAMDATA', 'C:\\ProgramData')
-            data_dir = os.path.join(program_data, 'DatabasePro')
+            # Build EXE: usa LocalAppData per evitare problemi di permessi
+            # ProgramData richiede privilegi admin per scrivere file
+            local_app_data = os.environ.get('LOCALAPPDATA', os.path.expanduser('~'))
+            data_dir = os.path.join(local_app_data, 'DatabasePro')
             try:
                 os.makedirs(data_dir, exist_ok=True)
             except Exception:
-                # Se non riesce a creare in ProgramData, usa AppData locale
-                local_app_data = os.environ.get('LOCALAPPDATA', os.path.expanduser('~'))
-                data_dir = os.path.join(local_app_data, 'DatabasePro')
+                # Fallback: usa la home dell'utente
+                data_dir = os.path.join(os.path.expanduser('~'), 'DatabasePro')
                 os.makedirs(data_dir, exist_ok=True)
         else:
             # Sviluppo: usa la directory dell'app
@@ -733,22 +733,17 @@ class ModernDBApp(QMainWindow):
         try:
             if hasattr(self, 'db_manager') and self.db_manager:
                 try:
-                    # try to commit any pending transactions
-                    conn = getattr(self.db_manager, 'conn', None)
-                    if conn:
-                        try:
-                            conn.commit()
-                        except Exception:
-                            pass
-                except Exception:
-                    pass
+                    # Sync first to ensure all data is written
+                    self.db_manager.sync()
+                except Exception as e:
+                    print(f"Error syncing database: {e}")
 
                 try:
                     self.db_manager.close()
                 except Exception as e:
                     print(f"Error closing database: {e}")
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"Error in closeEvent: {e}")
 
         try:
             # allow normal close to proceed
