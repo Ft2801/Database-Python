@@ -14,7 +14,7 @@ import ctypes
 
 # Configurazione
 APP_NAME = "DatabasePro"
-APP_VERSION = "1.1.0"
+APP_VERSION = "1.1.1"
 DEFAULT_INSTALL_DIR = os.path.join(os.environ.get('PROGRAMFILES', 'C:\\Program Files'), APP_NAME)
 
 
