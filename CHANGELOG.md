@@ -1,4 +1,10 @@
 
+
+## [1.1.1] - 2025-12-19
+
+### Modifiche
+- Automatic Temp files deletion
+
 ## [1.1.0] - 2025-12-18
 
 ### Modifiche
