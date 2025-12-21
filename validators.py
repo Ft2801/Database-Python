@@ -68,3 +68,39 @@ class InputValidator:
                 line_edit.setText(filtered)
                 line_edit.blockSignals(False)
         line_edit.textChanged.connect(on_text_changed)
+    
+    @staticmethod
+    def sanitize_text(value: str) -> str:
+        """
+        Sanitize text input by escaping special characters that could cause issues.
+        Preserves the original content but escapes HTML/XML special characters.
+        """
+        if not value:
+            return value
+        
+        # Escape HTML/XML special characters
+        sanitized = value.replace('&', '&amp;')
+        sanitized = sanitized.replace('<', '&lt;')
+        sanitized = sanitized.replace('>', '&gt;')
+        sanitized = sanitized.replace('"', '&quot;')
+        sanitized = sanitized.replace("'", '&#39;')
+        
+        return sanitized
+    
+    @staticmethod
+    def desanitize_text(value: str) -> str:
+        """
+        Reverse the sanitization process by unescaping HTML entities.
+        Converts escaped characters back to their original form.
+        """
+        if not value:
+            return value
+        
+        # Unescape HTML entities
+        desanitized = value.replace('&lt;', '<')
+        desanitized = desanitized.replace('&gt;', '>')
+        desanitized = desanitized.replace('&quot;', '"')
+        desanitized = desanitized.replace('&#39;', "'")
+        desanitized = desanitized.replace('&amp;', '&')  # Must be last
+        
+        return desanitized

@@ -35,7 +35,9 @@ class EditableTableDelegate(QStyledItemDelegate):
     
     def setEditorData(self, editor, index):
         value = index.model().data(index, Qt.ItemDataRole.DisplayRole)
-        editor.setText(str(value) if value else "")
+        # Apply desanitization for display
+        display_value = InputValidator.desanitize_text(str(value)) if value else ""
+        editor.setText(display_value)
     
     def setModelData(self, editor, model, index):
         value = editor.text()
@@ -55,7 +57,9 @@ class EditableTableDelegate(QStyledItemDelegate):
                     if not self._validate_number(value):
                         return
         
-        model.setData(index, value, Qt.ItemDataRole.EditRole)
+        # Sanitize the value before saving
+        sanitized_value = InputValidator.sanitize_text(value)
+        model.setData(index, sanitized_value, Qt.ItemDataRole.EditRole)
         
         if self.db_manager and self.table_name and index.column() > 0:
             id_index = model.index(index.row(), 0)
@@ -67,7 +71,7 @@ class EditableTableDelegate(QStyledItemDelegate):
                     self.db_manager.update_record(
                         self.table_name, 
                         record_id, 
-                        {col_name: value}
+                        {col_name: sanitized_value}
                     )
     
     def _validate_date(self, value: str) -> bool:
@@ -94,8 +98,10 @@ class EditableTableDelegate(QStyledItemDelegate):
             painter.save()
             
             doc = QTextDocument()
-            # Convert newlines to HTML breaks for proper multiline display
-            html_text = str(text).replace('\n', '<br>')
+            # Desanitize text for proper display and convert newlines to HTML breaks
+            display_text = InputValidator.desanitize_text(str(text))
+            # Re-escape for safe HTML rendering in QTextDocument
+            html_text = display_text.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;').replace('\n', '<br>')
             doc.setHtml(html_text)
             doc.setTextWidth(option.rect.width() - 4)
             
@@ -117,8 +123,9 @@ class EditableTableDelegate(QStyledItemDelegate):
         text = index.data(Qt.ItemDataRole.DisplayRole)
         if text:
             doc = QTextDocument()
-            # Convert newlines to HTML breaks for proper size calculation
-            html_text = str(text).replace('\n', '<br>')
+            # Desanitize text for proper size calculation and convert newlines to HTML breaks
+            display_text = InputValidator.desanitize_text(str(text))
+            html_text = display_text.replace('\n', '<br>')
             doc.setHtml(html_text)
             doc.setTextWidth(option.rect.width() - 4 if option.rect.width() > 4 else 150)
             return QSize(int(doc.idealWidth()), int(doc.size().height()) + 4)

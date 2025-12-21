@@ -277,7 +277,10 @@ class MainArea(QFrame):
                     # Store full DB value for file operations
                     item.setData(Qt.ItemDataRole.UserRole + 1, str(value))
                 else:
-                    item = QTableWidgetItem(str(value) if value is not None else "")
+                    # Decode sanitized text for display
+                    from validators import InputValidator
+                    display_value = InputValidator.desanitize_text(str(value)) if value is not None else ""
+                    item = QTableWidgetItem(display_value)
                 
                 item.setData(Qt.ItemDataRole.UserRole, record_id)
                 self.table_widget.setItem(row_idx, col_idx, item)
@@ -365,7 +368,10 @@ class MainArea(QFrame):
             row = item.row()
             col = item.column()
             new_text = editor.toPlainText()
-            item.setText(new_text)
+            # Sanitize the text before saving
+            sanitized_text = InputValidator.sanitize_text(new_text)
+            # Store the sanitized text in the model so it stays consistent with the database
+            item.setText(sanitized_text)
             self.adjust_row_height(row)
             self.table_widget.resizeRowsToContents()
             
@@ -373,7 +379,7 @@ class MainArea(QFrame):
             if record_id is not None:
                 columns = self.db_manager.get_columns(self.current_table)
                 col_name = columns[col + 1][1]
-                self.db_manager.update_record(self.current_table, record_id, {col_name: new_text})
+                self.db_manager.update_record(self.current_table, record_id, {col_name: sanitized_text})
             
             self.table_widget.clearSelection()
     
