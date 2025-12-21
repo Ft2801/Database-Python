@@ -472,7 +472,7 @@ class RecordDialog(QDialog):
                 # Legacy RELATION support - treat as text field
                 text_input = MultiLineTextEdit()
                 if value is not None:
-                    text_input.setPlainText(str(value))
+                    text_input.setPlainText(InputValidator.desanitize_text(str(value)))
                 text_input.textChanged.connect(self.validate_form)
                 form_layout.addWidget(text_input)
                 self.widgets[col_name] = {"type": "TEXT", "widget": text_input}
@@ -501,7 +501,7 @@ class RecordDialog(QDialog):
                     # For legacy REAL columns, use text edit (NUMERO type removed)
                     text_input = MultiLineTextEdit()
                     if value is not None:
-                        text_input.setPlainText(str(value))
+                        text_input.setPlainText(InputValidator.desanitize_text(str(value)))
                     text_input.textChanged.connect(self.validate_form)
                     form_layout.addWidget(text_input)
                     self.widgets[col_name] = {"type": "TEXT", "widget": text_input}
@@ -509,7 +509,7 @@ class RecordDialog(QDialog):
                     # Use multiline text edit that allows any character
                     text_input = MultiLineTextEdit()
                     if value is not None:
-                        text_input.setPlainText(str(value))
+                        text_input.setPlainText(InputValidator.desanitize_text(str(value)))
                     text_input.textChanged.connect(self.validate_form)
                     form_layout.addWidget(text_input)
                     self.widgets[col_name] = {"type": "TEXT", "widget": text_input}
@@ -563,7 +563,8 @@ class RecordDialog(QDialog):
                 if not is_valid:
                     errors.append(f"{col_name}: {error_msg}")
                 else:
-                    data[col_name] = value
+                    # Sanitize the combobox text input
+                    data[col_name] = InputValidator.sanitize_text(value)
             else:
                 # Handle both QLineEdit and QPlainTextEdit (MultiLineTextEdit)
                 text_widget = widget_info["widget"]
@@ -575,7 +576,8 @@ class RecordDialog(QDialog):
                 if not is_valid:
                     errors.append(f"{col_name}: {error_msg}")
                 else:
-                    data[col_name] = value
+                    # Sanitize the text input to handle special characters
+                    data[col_name] = InputValidator.sanitize_text(value)
         
         if errors:
             QMessageBox.warning(self, "Errore di Validazione", "\n".join(errors))
