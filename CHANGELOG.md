@@ -1,12 +1,9 @@
 
 ## [1.1.2] - 2025-12-19
 
-<<<<<<< Updated upstream
-=======
 ### Modifiche
 - Fixed "<>" symbols problem
 
->>>>>>> Stashed changes
 ## [1.1.1] - 2025-12-19
 
 ### Modifiche
