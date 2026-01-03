@@ -5,7 +5,7 @@ from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QMessageBox, QApplication, QDialog, QLabel, QProgressBar, QPushButton
 )
-from PyQt6.QtCore import Qt, QThread, pyqtSignal
+from PyQt6.QtCore import Qt, QThread, pyqtSignal, QPropertyAnimation, QEasingCurve, QParallelAnimationGroup
 from PyQt6.QtGui import QIcon
 
 from database import DatabaseManager
@@ -238,7 +238,7 @@ class SplashScreen(QWidget):
         super().__init__()
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
-        self.setFixedSize(400, 250)
+        self.setFixedSize(400, 210)
         
         # Centra la finestra sullo schermo
         primary_screen = QApplication.primaryScreen()
@@ -246,9 +246,21 @@ class SplashScreen(QWidget):
             screen = primary_screen.geometry()
             x = (screen.width() - self.width()) // 2
             y = (screen.height() - self.height()) // 2
+            y = (screen.height() - self.height()) // 2
             self.move(x, y)
         
+        # Inizia trasparente per il fade-in
+        self.setWindowOpacity(0.0)
+        
         self.init_ui()
+        
+        # Animazione fade-in
+        self.fade_in_anim = QPropertyAnimation(self, b"windowOpacity")
+        self.fade_in_anim.setDuration(500)
+        self.fade_in_anim.setStartValue(0.0)
+        self.fade_in_anim.setEndValue(1.0)
+        self.fade_in_anim.setEasingCurve(QEasingCurve.Type.OutCubic)
+        self.fade_in_anim.start()
     
     def init_ui(self):
         layout = QVBoxLayout(self)
@@ -259,7 +271,7 @@ class SplashScreen(QWidget):
         title = QLabel("DatabasePro")
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         title.setStyleSheet("""
-            font-size: 28px;
+            font-size: 36px;
             font-weight: bold;
             color: #ffffff;
         """)
@@ -268,7 +280,7 @@ class SplashScreen(QWidget):
         # Sottotitolo con versione
         subtitle = QLabel(f"Gestione Database Avanzata - v{CURRENT_VERSION}")
         subtitle.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        subtitle.setStyleSheet("font-size: 12px; color: #888888;")
+        subtitle.setStyleSheet("font-size: 14px; color: #888888;")
         layout.addWidget(subtitle)
         
         layout.addStretch()
@@ -306,11 +318,42 @@ class SplashScreen(QWidget):
             }
         """)
     
+    
     def set_progress(self, value: int, status: str):
-        """Aggiorna la barra e il testo di stato"""
-        self.progress.setValue(value)
+        """Aggiorna la barra e il testo di stato con animazione fluida"""
         self.status_label.setText(status)
+        
+        # Animazione fluida della progress bar
+        if not hasattr(self, 'progress_anim'):
+            self.progress_anim = QPropertyAnimation(self.progress, b"value")
+            self.progress_anim.setDuration(300)
+            self.progress_anim.setEasingCurve(QEasingCurve.Type.OutCubic)
+        
+        # Ferma l'animazione corrente se c'è
+        self.progress_anim.stop()
+        self.progress_anim.setStartValue(self.progress.value())
+        self.progress_anim.setEndValue(value)
+        self.progress_anim.start()
+        
         QApplication.processEvents()
+
+    def fade_out(self, callback=None):
+        """Esegue il fade-out e chiude la finestra"""
+        self.fade_out_anim = QPropertyAnimation(self, b"windowOpacity")
+        self.fade_out_anim.setDuration(500)
+        self.fade_out_anim.setStartValue(1.0)
+        self.fade_out_anim.setEndValue(0.0)
+        self.fade_out_anim.setEasingCurve(QEasingCurve.Type.InCubic)
+        self.fade_out_anim.finished.connect(self.close)
+        if callback:
+            self.fade_out_anim.finished.connect(callback)
+        self.fade_out_anim.start()
+        
+        # Mantiene l'event loop attivo per l'animazione
+        while self.fade_out_anim.state() == QPropertyAnimation.State.Running:
+            QApplication.processEvents()
+            import time
+            time.sleep(0.01)
 
 
 def get_app_path():
@@ -387,7 +430,33 @@ class ModernDBApp(QMainWindow):
         
         self.apply_stylesheet()
         self.setup_shortcuts()
+        
+        # Inizia nascosto/trasparente per il fade-in
+        self.setWindowOpacity(0.0)
+        from PyQt6.QtCore import QTimer
+        # Ritardo leggermente maggiore per dare tempo al sistema grafico di inizializzare
+        QTimer.singleShot(100, self.start_fade_in)
     
+    def start_fade_in(self):
+        try:
+            print("[Main] Starting fade-in animation...")
+            self.fade_in_anim = QPropertyAnimation(self, b"windowOpacity")
+            self.fade_in_anim.setDuration(500)
+            self.fade_in_anim.setStartValue(0.0)
+            self.fade_in_anim.setEndValue(1.0)
+            self.fade_in_anim.setEasingCurve(QEasingCurve.Type.OutCubic)
+            
+            # Safety: assicurati che alla fine sia visibile
+            def on_finished():
+                print("[Main] Fade-in finished, enforcing opacity 1.0")
+                self.setWindowOpacity(1.0)
+                
+            self.fade_in_anim.finished.connect(on_finished)
+            self.fade_in_anim.start()
+        except Exception as e:
+            print(f"[Main] Error in fade-in: {e}")
+            self.setWindowOpacity(1.0)
+
     def _show_status(self, message: str):
         """Helper per mostrare messaggi nella status bar"""
         status_bar = self.statusBar()
@@ -510,6 +579,13 @@ class ModernDBApp(QMainWindow):
     
     def load_table(self, table_name: str):
         self.main_area.load_table(table_name)
+        
+        # Ripristina lo stato delle colonne salvato per questa tabella
+        if hasattr(self, 'config_manager'):
+            saved_state = self.config_manager.get(f"columns_{table_name}")
+            if saved_state:
+                self.main_area.set_column_state(saved_state)
+                
         self._show_status(f"Tabella: {table_name}")
     
     def show_new_table_dialog(self):
@@ -729,28 +805,55 @@ class ModernDBApp(QMainWindow):
             self._show_status(message)
 
     def closeEvent(self, a0):
-        """Ensure DB is committed/encrypted on application close."""
-        try:
-            if hasattr(self, 'db_manager') and self.db_manager:
-                try:
-                    # Sync first to ensure all data is written
-                    self.db_manager.sync()
-                except Exception as e:
-                    print(f"Error syncing database: {e}")
+        """Ensure DB is committed/encrypted on application close, with fade-out effect."""
+        
+        # Salva lo stato delle colonne della tabella corrente prima di chiudere
+        if hasattr(self, 'main_area') and hasattr(self, 'config_manager'):
+            current_table = self.main_area.current_table
+            if current_table:
+                state = self.main_area.get_column_state()
+                if state:
+                    self.config_manager.set(f"columns_{current_table}", state)
+        
+        # Se stiamo già chiudendo (fade-out in corso), accetta l'evento
+        if getattr(self, 'is_closing', False):
+            a0.accept()
+            return
+            
+        # Altrimenti, ignora l'evento di chiusura immediata e avvia il fade-out
+        a0.ignore()
+        self.is_closing = True
+        
+        # Animazione fade-out
+        self.fade_out_anim = QPropertyAnimation(self, b"windowOpacity")
+        self.fade_out_anim.setDuration(300)
+        self.fade_out_anim.setStartValue(self.windowOpacity())
+        self.fade_out_anim.setEndValue(0.0)
+        self.fade_out_anim.setEasingCurve(QEasingCurve.Type.InCubic)
+        
+        # Alla fine dell'animazione, esegui la chiusura reale
+        def on_fade_complete():
+            # Esegui pulizia DB
+            try:
+                if hasattr(self, 'db_manager') and self.db_manager:
+                    try:
+                        # Sync first to ensure all data is written
+                        self.db_manager.sync()
+                    except Exception as e:
+                        print(f"Error syncing database: {e}")
 
-                try:
-                    self.db_manager.close()
-                except Exception as e:
-                    print(f"Error closing database: {e}")
-        except Exception as e:
-            print(f"Error in closeEvent: {e}")
-
-        try:
-            # allow normal close to proceed
-            super().closeEvent(a0)
-        except Exception:
-            if a0:
-                a0.accept()
+                    try:
+                        self.db_manager.close()
+                    except Exception as e:
+                        print(f"Error closing database: {e}")
+            except Exception as e:
+                print(f"Error in closeEvent: {e}")
+                
+            # Chiudi la finestra definitivamente
+            self.close()
+            
+        self.fade_out_anim.finished.connect(on_fade_complete)
+        self.fade_out_anim.start()
 
 
 if __name__ == "__main__":
@@ -949,9 +1052,25 @@ if __name__ == "__main__":
     
     import time
     
+    def non_blocking_wait(duration_sec):
+        """Attesa che mantiene l'interfaccia reattiva ed esegue le animazioni"""
+        end_time = time.time() + duration_sec
+        while time.time() < end_time:
+            QApplication.processEvents()
+            # Piccolo sleep per non consumare 100% CPU
+            time.sleep(0.01)
+
+    # ATTESA FADE-IN: Aspetta che l'animazione di fade-in sia completata
+    # Mantiene l'interfaccia reattiva mentre l'opacità sale a 1.0
+    fade_duration = 500  # ms, deve corrispondere alla durata in SplashScreen
+    start_time = time.time()
+    while (time.time() - start_time) * 1000 < fade_duration + 200:  # buffer di 200ms
+        QApplication.processEvents()
+        time.sleep(0.01)
+    
     # Step 1: Inizializzazione
     splash.set_progress(5, "Inizializzazione ambiente...")
-    time.sleep(0.1)
+    non_blocking_wait(0.2)
     
     # Step 1.5: Pulizia vecchi installer
     splash.set_progress(10, "Pulizia file temporanei...")
@@ -963,7 +1082,7 @@ if __name__ == "__main__":
             print(f"[App] Puliti {deleted} vecchi file installer")
     except Exception as e:
         print(f"[App] Errore durante la pulizia dei vecchi installer: {e}")
-    time.sleep(0.1)
+    non_blocking_wait(0.2)
     
     # Step 2: Controllo aggiornamenti
     splash.set_progress(15, "Controllo aggiornamenti...")
@@ -978,18 +1097,18 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"[Updater] Errore controllo aggiornamenti: {e}")
         splash.set_progress(20, "Controllo aggiornamenti fallito")
-    time.sleep(0.1)
+    non_blocking_wait(0.2)
     
     # Step 3: Caricamento moduli
     splash.set_progress(35, "Caricamento moduli...")
     import auth as auth_mod
     import sys as _sys
-    time.sleep(0.1)
+    non_blocking_wait(0.2)
     
     # Step 4: Configurazione percorsi
     splash.set_progress(50, "Configurazione percorsi dati...")
     app_path = os.path.dirname(os.path.abspath(__file__))
-    time.sleep(0.1)
+    non_blocking_wait(0.2)
     
     # Step 5: Preparazione autenticazione
     splash.set_progress(70, "Preparazione autenticazione...")
@@ -1006,15 +1125,15 @@ if __name__ == "__main__":
     else:
         auth_path = os.path.join(app_path, 'auth.json')
         auth_mod.ensure_password_file(auth_path, default_password='Admin')
-    time.sleep(0.1)
+    non_blocking_wait(0.2)
     
     # Step 6: Caricamento database
     splash.set_progress(90, "Caricamento database...")
-    time.sleep(0.1)
+    non_blocking_wait(0.3)
     
     # Step 7: Completamento
     splash.set_progress(100, "Pronto!")
-    time.sleep(0.1)
+    non_blocking_wait(0.5)
     
     # Se c'è un aggiornamento disponibile, mostra il dialogo prima di chiudere lo splash
     # per evitare un "buco" visivo tra le due finestre
@@ -1038,8 +1157,8 @@ if __name__ == "__main__":
         # Se sceglie "più tardi", continua normalmente
         update_dialog.exec()
         
-    # Chiudi definitivamente lo splash
-    splash.close()
+    # Chiudi definitivamente lo splash con fade-out
+    splash.fade_out()
 
     # Authentication setup
     try:
