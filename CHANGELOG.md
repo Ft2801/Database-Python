@@ -1,4 +1,10 @@
 
+
+## [1.2.0] - 2026-01-03
+
+### Modifiche
+- Fade animations, movable columns, small overall bugfixes
+
 ## [1.1.2] - 2025-12-19
 
 ### Modifiche

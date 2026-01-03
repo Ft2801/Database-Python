@@ -212,6 +212,10 @@ class MainArea(QFrame):
         # Abilita il doppio click sugli header per rinominare le colonne
         self.table_widget.horizontalHeader().sectionDoubleClicked.connect(self.rename_column)
         
+        # Abilita lo spostamento visuale delle colonne
+        self.table_widget.horizontalHeader().setSectionsMovable(True)
+        self.table_widget.horizontalHeader().setDragEnabled(True)
+        
         layout.addWidget(self.table_widget)
         
         self.setLayout(layout)
@@ -221,6 +225,25 @@ class MainArea(QFrame):
             self.apply_theme_styles()
         except Exception:
             pass
+
+    def get_column_state(self):
+        """Restituisce lo stato visivo delle colonne come stringa base64"""
+        if not self.current_table:
+            return None
+        return self.table_widget.horizontalHeader().saveState().toBase64().data().decode('utf-8')
+
+    def set_column_state(self, state_b64):
+        """Ripristina lo stato visivo delle colonne"""
+        if not state_b64 or not self.current_table:
+            return
+        try:
+            from PyQt6.QtCore import QByteArray
+            import base64
+            # Convert string back to bytes
+            data = QByteArray(base64.b64decode(state_b64))
+            self.table_widget.horizontalHeader().restoreState(data)
+        except Exception as e:
+            print(f"Error restoring column state: {e}")
     
     def create_button(self, text: str, color: str) -> QPushButton:
         btn = QPushButton(text)

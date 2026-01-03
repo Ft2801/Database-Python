@@ -11,8 +11,8 @@ from PyQt6.QtWidgets import (
     QComboBox, QListWidget, QListWidgetItem, QFrame, QScrollArea, QWidget, QMessageBox,
     QFileDialog, QDateEdit, QDoubleSpinBox, QApplication, QPlainTextEdit
 )
-from PyQt6.QtCore import QDate, Qt
-from PyQt6.QtGui import QFont, QPixmap
+from PyQt6.QtCore import QDate, Qt, QPropertyAnimation, QEasingCurve, QTimer
+from PyQt6.QtGui import QFont, QPixmap, QIcon
 
 from validators import InputValidator
 from config import StyleManager
@@ -783,8 +783,78 @@ class PasswordDialog(QDialog):
         super().__init__(parent)
         self.auth_path = auth_path
         self.setWindowTitle("Accesso")
-        center_dialog(self, 0.35, 0.25)
+        
+        # Imposta icona se disponibile
+        try:
+            # Tenta di trovare il percorso dell'icona
+            current_dir = os.path.dirname(os.path.abspath(__file__))
+            logo_path = os.path.join(current_dir, "logo.png")
+            if os.path.exists(logo_path):
+                self.setWindowIcon(QIcon(logo_path))
+        except Exception:
+            pass
+            
+        # Dimensioni leggermente ridotte (30% larghezza, 18% altezza schermo)
+        center_dialog(self, 0.30, 0.18)
+        
+        # Inizia trasparente per il fade-in
+        self.setWindowOpacity(0.0)
+        
+        # Inizia trasparente per il fade-in
+        self.setWindowOpacity(0.0)
+        self.closing = False  # Flag per prevenire chiamate multiple a accept/reject
+        
         self.init_ui()
+        
+        # Animazione fade-in
+        QTimer.singleShot(0, self.start_fade_in)
+
+    def start_fade_in(self):
+        self.fade_in_anim = QPropertyAnimation(self, b"windowOpacity")
+        self.fade_in_anim.setDuration(400)
+        self.fade_in_anim.setStartValue(0.0)
+        self.fade_in_anim.setEndValue(1.0)
+        self.fade_in_anim.setEasingCurve(QEasingCurve.Type.OutCubic)
+        self.fade_in_anim.start()
+
+    def accept(self):
+        """Override accept to fade out first"""
+        if self.closing:
+            return
+        self.closing = True
+        print("[Auth] Accept called, starting fade-out")
+        self.fade_out_and_close(lambda: self.done(1))  # 1 = Accepted
+        
+    def reject(self):
+        """Override reject to fade out first"""
+        if self.closing:
+            return
+        self.closing = True
+        print("[Auth] Reject called, starting fade-out")
+        self.fade_out_and_close(lambda: self.done(0))  # 0 = Rejected
+        
+    def fade_out_and_close(self, callback):
+        self.fade_out_anim = QPropertyAnimation(self, b"windowOpacity")
+        self.fade_out_anim.setDuration(300)
+        self.fade_out_anim.setStartValue(self.windowOpacity())
+        self.fade_out_anim.setEndValue(0.0)
+        self.fade_out_anim.setEasingCurve(QEasingCurve.Type.InCubic)
+        self.fade_out_anim.finished.connect(callback)
+        self.fade_out_anim.start()
+        
+        # Failsafe: se l'animazione si blocca, chiudi comunque dopo un timeout
+        # Usiamo un timer non-singleShot che viene cancellato se finisce prima?
+        # Semplice singleShot di sicurezza:
+        QTimer.singleShot(500, callback) # 500ms > 300ms duration
+        
+        # Importante: se siamo in exec(), dobbiamo processare gli eventi
+        # per permettere all'animazione di girare
+        # Ma self.fade_out_anim.start() è asincrono? 
+        # In exec() modale, l'event loop è gestito da Qt.
+        # Dobbiamo solo assicurarci che non ritorni subito.
+        # Sovrascrivendo accept/reject non chiamiamo super() subito, 
+        # quindi la finestra rimane aperta mentre l'animazione gira.
+        # Quando 'finished' chiama callback (super().accept), allora si chiude.
 
     def init_ui(self):
         layout = QVBoxLayout()
@@ -795,7 +865,14 @@ class PasswordDialog(QDialog):
         self.pwd_input.returnPressed.connect(self.try_accept)
         # Give focus to the password field so the user can type immediately
         self.pwd_input.setFocus()
+        self.pwd_input.setFocus()
         layout.addWidget(self.pwd_input)
+        
+        # Etichetta per errori inline (inizialmente nascosta/vuota)
+        self.error_label = QLabel("")
+        self.error_label.setStyleSheet("color: #ff5555; font-size: 11px; font-weight: bold;")
+        self.error_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(self.error_label)
 
         btn_layout = QHBoxLayout()
         cancel_btn = QPushButton("Annulla")
@@ -808,27 +885,46 @@ class PasswordDialog(QDialog):
         layout.addLayout(btn_layout)
 
         self.setLayout(layout)
+        
+        # Make Accedi default and prevent cancel on Enter
+        ok_btn.setDefault(True)
+        ok_btn.setAutoDefault(True)
+        cancel_btn.setAutoDefault(False)
+
+    def keyPressEvent(self, event):
+        # Impedisci che Esc chiuda la finestra
+        if event.key() == Qt.Key.Key_Escape:
+            event.ignore()
+            return
+        super().keyPressEvent(event)
 
     def try_accept(self):
         import auth as auth_mod
         pwd = self.pwd_input.text().strip()
+        
+        # Reset errore
+        self.error_label.setText("")
+        
         try:
             ok = auth_mod.verify_password(self.auth_path, pwd)
         except Exception:
             ok = False
 
         if ok:
+            # Chiama self.accept() che ora include il fade-out
             self.accept()
             return
 
-        # Debug hint (printed to console) for diagnosis; kept minimal
-        try:
-            print(f"[auth] verify failed for input (len={len(pwd)}) against {self.auth_path}")
-        except Exception:
-            pass
-
-        from PyQt6.QtWidgets import QMessageBox
-        QMessageBox.warning(self, "Accesso negato", "Password errata")
+        # Mostra errore inline invece di popup
+        # Questo evita che l'utente chiuda per sbaglio il dialog premendo Esc/Enter sul popup
+        self.error_label.setText("Password errata")
+        
+        # Pulisce il campo password
+        self.pwd_input.clear()
+        self.pwd_input.setFocus()
+        
+        # Non chiamare self.reject() o self.close() qui!
+        # La finestra deve rimanere aperta per il retry.
 
 
 class ChangePasswordDialog(QDialog):
