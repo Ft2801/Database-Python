@@ -13,6 +13,9 @@ database_avanzato.db.enc
 # Build e distribuzione
 build/
 dist/
+*.exe
+*.msi
+*.zip
 *.spec
 *.egg-info/
 *.eggs/
